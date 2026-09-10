@@ -3,7 +3,7 @@ try{process.loadEnvFile('.env.local');}catch{}
 http.createServer(async(req,res)=>{
  res.status=n=>{res.statusCode=n;return res;};res.json=data=>{res.setHeader('Content-Type','application/json');res.end(JSON.stringify(data));};
  const pathname=new URL(req.url,'http://localhost').pathname;
- if(/^\/api\/(analyze|config|ocr)$/.test(pathname)){
+ if(/^\/api\/(analyze|config|ocr|tasks|sheet|transcribe)$/.test(pathname)){
   let body='';for await(const chunk of req){body+=chunk;if(body.length>4000000){res.status(413).json({error:'Request too large'});return;}}
   try{req.body=body?JSON.parse(body):{};await require('.'+pathname+'.js')(req,res);}catch{res.status(500).json({error:'Server error'});}return;
  }

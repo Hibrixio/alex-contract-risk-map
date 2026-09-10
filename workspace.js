@@ -36,10 +36,11 @@ async function initAuth() {
       const previousId=currentUser?.id;
       currentUser = window.Clerk.user;
       if(previousId && previousId!==currentUser?.id){releaseDocument();uploadedDocument={name:'',text:'',fileType:'text',fileUrl:'',pdfData:null,pdfPages:[]};nodes=[];sources={};taskItems=[];documentKey='';documentDialog.close();render();syncWorkspace();}
+      if(previousId && previousId!==currentUser?.id)window.dispatchEvent(new Event('orbit-user-change'));
       $('signInScreen').hidden = Boolean(currentUser);
       document.body.classList.toggle('signed-out', !currentUser);
       if (currentUser) {
-        if(previousId!==currentUser.id && !documentKey)loadTasks();
+        if(previousId!==currentUser.id){loadTasks();renderRecents();}
         $('greetingTitle').textContent = `Hi, ${currentUser.firstName || currentUser.username || 'there'}. What do you need to map today?`;
         window.Clerk.mountUserButton($('userButton'));
       } else {
@@ -94,6 +95,7 @@ async function identifyDocument(text) {
 }
 processDocumentText = async function(text,name) {
   if (busy) return false;
+  const analysisOwner=currentUser?.id;
   lockUpload(true); uploadedDocument.name=name; uploadedDocument.text=String(text || '').trim();
   beginNewDocumentAnalysis(name); syncWorkspace(); $('analysisNotice').hidden=true;
   try {
@@ -102,14 +104,15 @@ processDocumentText = async function(text,name) {
     await identifyDocument(uploadedDocument.text);
     setUploadMessage(`Mapping ${name}. Reading your requested topics…`,'busy');
     const result=await analyzeWithOpenRouter(uploadedDocument.text,name);
+    if(currentUser?.id!==analysisOwner)return false;
     setNodesFromAnalysis(result,name,'Orbit'); state.dossierHidden=true; renderView();
-    loadTasks();
-    try{recommendationStatus=JSON.parse(localStorage.getItem(taskStorageKey()+'-decisions') || '{}');nodeOffsets=JSON.parse(localStorage.getItem(taskStorageKey()+'-positions') || '{}');}catch{recommendationStatus={};nodeOffsets={};}
+    try{recommendationStatus=JSON.parse(localStorage.getItem(mapStorageKey()+'-decisions') || '{}');nodeOffsets=JSON.parse(localStorage.getItem(mapStorageKey()+'-positions') || '{}');}catch{recommendationStatus={};nodeOffsets={};}
     render();
     const missing=window.lastAnalysisResult?.unmatchedRequests || [];
     $('analysisNotice').hidden=false;
     $('analysisNotice').textContent = (missing.length ? `Not found in the source: ${missing.join('; ')}. ` : '') + `${nodes.length} source-backed items mapped. Review the highlighted evidence before acting.`;
-    showPage($('mapKind').value==='tasks' ? 'tasks' : 'mapping');
+    showPage('mapping');
+    await saveRecentMapping();
     if ($('autoSource').checked && nodes.length) openDocumentAt();
     setUploadMessage(nodes.length ? `Ready — ${nodes.length} items. Open the highlighted document or select a map card.` : 'No matching clauses found. Adjust your request and map again.','success');
     return true;
@@ -155,6 +158,7 @@ extractPdfDocumentText = async function(buffer) {
 };
 readUploadedFile = async function(file) {
   if(busy) return;
+  const uploadOwner=currentUser?.id;
   if(file.size>25*1024*1024) return setUploadMessage('Choose a file smaller than 25 MB.','error');
   const ext=file.name.split('.').pop().toLowerCase();
   if(!['pdf','docx','txt','md','csv','png','jpg','jpeg','webp'].includes(ext)) return setUploadMessage('Use PDF, DOCX, text, PNG, or JPEG. Save older Word files as DOCX first.','error');
@@ -170,6 +174,7 @@ readUploadedFile = async function(file) {
       const scale=Math.min(1,2400/Math.max(bitmap.width,bitmap.height));canvas.width=bitmap.width*scale;canvas.height=bitmap.height*scale;canvas.getContext('2d').drawImage(bitmap,0,0,canvas.width,canvas.height);bitmap.close();
       const page=await recognizeCanvas(canvas,1);uploadedDocument.pdfPages=[page];text=page.text;
     } else text=await file.text();
+    if(currentUser?.id!==uploadOwner)return;
     lockUpload(false);await processDocumentText(text,file.name);
   } catch(error){setUploadMessage(`Could not read ${file.name}: ${error.message}`,'error');}
   finally{lockUpload(false);documentUpload.value='';if(ocrWorker){await ocrWorker.terminate();ocrWorker=null;}syncWorkspace();}
@@ -190,6 +195,7 @@ function addHighlights(container,pageNumber,selectedId){
 renderUploadedPdfPages = async function(selectedId=state.selected){
   const token=++sourceRender;documentPages.innerHTML='<p class="uploaded-pdf-loading">Opening your original document…</p>';
   const pdfjs=window.pdfjsLib || await import('./assets/vendor/pdfjs/pdf.min.mjs');
+  window.pdfjsLib=pdfjs;pdfjs.GlobalWorkerOptions.workerSrc='./assets/vendor/pdfjs/pdf.worker.min.mjs';
   const loading=pdfjs.getDocument({data:uploadedDocument.pdfData.slice(0)}),pdf=await loading.promise;
   if(token!==sourceRender){await loading.destroy();return;}
   documentPages.innerHTML='';
@@ -218,25 +224,29 @@ scrollUploadedDocumentToNode=function(id=state.selected,behavior='smooth'){
   if(target){const box=target.getBoundingClientRect(),container=documentPages.getBoundingClientRect();documentPages.scrollTo({top:documentPages.scrollTop+box.top-container.top-100,behavior});}
 };
 $('closeDocument').addEventListener('click',()=>sourceRender++);
-$('clearWorkspace').onclick=()=>{if(busy)return;sourceRender++;documentDialog.close();$('clearDocument').click();taskItems=[];documentKey='';syncWorkspace();showPage('mapping');};
+$('clearWorkspace').onclick=()=>{if(busy)return;sourceRender++;documentDialog.close();$('clearDocument').click();documentKey='';syncWorkspace();showPage('mapping');};
 for(const id of ['reduceMotion','autoSource']){
   $(id).checked=localStorage.getItem(`orbit-${id}`)==='true';
   $(id).onchange=()=>{localStorage.setItem(`orbit-${id}`,$(id).checked);document.body.classList.toggle('reduce-motion',$('reduceMotion').checked);};
 }
 document.body.classList.toggle('reduce-motion',$('reduceMotion').checked);
-function taskStorageKey(){return `orbit-tasks-${currentUser?.id || 'local'}-${documentKey || 'manual'}`;}
+function taskStorageKey(){return `orbit-independent-tasks-${currentUser?.id || 'local'}`;}
+function mapStorageKey(){return `orbit-mapping-${currentUser?.id || 'local'}-${documentKey}`;}
 function saveTasks(){try{localStorage.setItem(taskStorageKey(),JSON.stringify(taskItems));}catch{setUploadMessage('Browser storage is full. Export your tasks before leaving.','error');}}
 function loadTasks(){
-  let saved=[];try{saved=JSON.parse(localStorage.getItem(taskStorageKey()) || '[]');}catch{}
-  taskItems=nodes.map((node,i)=>saved.find(t=>t.id===node.id) || {id:node.id,title:node.title,priority:node.risk,status:'To do',owner:'',due:'',next:node.ask,notes:'',blockers:'',actions:[{text:node.ask,done:false}],x:50+(i%3-1)*28,y:15+Math.floor(i/3)*24});
-  taskItems.push(...saved.filter(t=>t.manual));taskSelected=taskItems[0]?.id || '';saveTasks();
+  try{
+    const saved=localStorage.getItem(taskStorageKey());
+    if(saved!==null)taskItems=JSON.parse(saved);
+    else{const migrated=[];for(let i=0;i<localStorage.length;i++){const key=localStorage.key(i);if(key.startsWith(`orbit-tasks-${currentUser?.id}-`)){try{for(const t of JSON.parse(localStorage.getItem(key))){if(t.manual||t.owner||t.notes||(t.actions || []).some(a=>a.done))migrated.push(t);}}catch{}}}taskItems=[...new Map(migrated.map(t=>[t.id,t])).values()];saveTasks();}
+  }catch{taskItems=[];}
+  taskSelected=taskItems[0]?.id || '';
 }
 function downloadFile(name,text,type){const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([text],{type}));a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000);}
 function renderTasks(){
   const matches=taskItems.filter(t=>(taskFilter==='all'||t.status===taskFilter)&&`${t.title} ${t.owner} ${t.next} ${t.notes}`.toLowerCase().includes(taskQuery.toLowerCase()));
   const selected=taskItems.find(t=>t.id===taskSelected);
   const page=$('tasksPage');
-  page.innerHTML=`<div class="page-title"><div><span class="orbit-eyebrow">FROM INSIGHT TO ACTION</span><h1>Tasks</h1><p>${taskItems.length} total · ${taskItems.filter(t=>t.status==='Done').length} done · ${taskItems.filter(t=>t.blockers).length} with blockers</p></div><button id="newTask">+ New task</button><button id="taskView">${taskMap?'List view':'Map view'}</button><button id="exportTasks">Export tasks</button></div><div class="task-controls"><input id="taskSearch" aria-label="Search tasks" placeholder="Search tasks or owners" value="${escapeHtml(taskQuery)}"><select id="taskFilter" aria-label="Filter task status">${['all','To do','In progress','Blocked','Done'].map(v=>`<option ${taskFilter===v?'selected':''}>${v}</option>`).join('')}</select></div><div class="tasks-layout"><div class="task-list ${taskMap?'task-map':''}" id="taskList">${taskMap?'<svg id="taskConnections" aria-hidden="true"></svg>':''}${matches.map(t=>`<button class="task-item" data-task="${t.id}" aria-pressed="${t.id===taskSelected}" style="--task-color:${t.priority==='high'?'#b34e4b':t.priority==='medium'?'#80679a':'#52759a'};${taskMap?`left:${t.x}%;top:${t.y}%;`:''}"><strong>${escapeHtml(t.title)}</strong><span>${escapeHtml(t.status)} · ${escapeHtml(t.owner || 'Unassigned')}</span><small>${escapeHtml(t.due || 'No due date')}</small></button>`).join('') || '<p>No tasks yet. Upload a document or create your first task.</p>'}</div><div class="task-editor">${selected?`<h2>${escapeHtml(selected.title)}</h2><label>Title<input data-field="title" value="${escapeHtml(selected.title)}"></label><div class="task-fields"><label>Owner<input data-field="owner" value="${escapeHtml(selected.owner)}" placeholder="Assign an owner"></label><label>Due date<input data-field="due" type="date" value="${escapeHtml(selected.due)}"></label><label>Status<select data-field="status">${['To do','In progress','Blocked','Done'].map(v=>`<option ${selected.status===v?'selected':''}>${v}</option>`).join('')}</select></label><label>Priority<select data-field="priority">${['high','medium','low'].map(v=>`<option ${selected.priority===v?'selected':''}>${v}</option>`).join('')}</select></label></div><label>Next action<textarea data-field="next">${escapeHtml(selected.next)}</textarea></label><h3>Action checklist</h3>${selected.actions.map((a,i)=>`<label class="check-row"><input type="checkbox" data-action="${i}" ${a.done?'checked':''}><span>${escapeHtml(a.text)}</span></label>`).join('')}<form id="addAction"><input name="action" aria-label="New checklist item" required placeholder="Add a checklist item"><button>Add</button></form><label>Blockers / waiting on<textarea data-field="blockers" placeholder="Who or what is holding this up?">${escapeHtml(selected.blockers)}</textarea></label><label>Working notes<textarea data-field="notes" placeholder="Your notes…">${escapeHtml(selected.notes)}</textarea></label>${nodes.some(n=>n.id===selected.id)?'<button id="taskSource">View highlighted evidence</button><button id="taskClause">Focus on map</button>':''}`:'<p>Select a task to see its next action, checklist and notes.</p>'}</div></div>`;
+  page.innerHTML=`<div class="page-title"><div><span class="orbit-eyebrow">FROM INSIGHT TO ACTION</span><h1>Tasks</h1><p>${taskItems.length} total · ${taskItems.filter(t=>t.status==='Done').length} done · ${taskItems.filter(t=>t.blockers).length} with blockers</p></div><button id="newTask">+ New task</button><button id="taskView">${taskMap?'List view':'Map view'}</button><button id="exportTasks">Export tasks</button></div><div class="task-controls"><input id="taskSearch" aria-label="Search tasks" placeholder="Search tasks or owners" value="${escapeHtml(taskQuery)}"><select id="taskFilter" aria-label="Filter task status">${['all','To do','In progress','Blocked','Done'].map(v=>`<option ${taskFilter===v?'selected':''}>${v}</option>`).join('')}</select></div><div class="tasks-layout"><div class="task-list ${taskMap?'task-map':''}" id="taskList">${taskMap?'<svg id="taskConnections" aria-hidden="true"></svg>':''}${matches.map(t=>`<button class="task-item" data-task="${t.id}" aria-pressed="${t.id===taskSelected}" style="--task-color:${t.priority==='high'?'#b34e4b':t.priority==='medium'?'#80679a':'#52759a'};${taskMap?`left:${t.x}%;top:${t.y}%;`:''}"><strong>${escapeHtml(t.title)}</strong><span>${escapeHtml(t.status)} · ${escapeHtml(t.owner || 'Unassigned')}</span><small>${escapeHtml(t.due || 'No due date — needs to be set')}</small></button>`).join('') || '<p>No tasks yet. Upload a document or create your first task.</p>'}</div><div class="task-editor">${selected?`<h2>${escapeHtml(selected.title)}</h2><label>Title<input data-field="title" value="${escapeHtml(selected.title)}"></label><div class="task-fields"><label>Owner<input data-field="owner" value="${escapeHtml(selected.owner)}" placeholder="Assign an owner"></label><label>Due date<input data-field="due" type="date" value="${escapeHtml(selected.due)}"></label><label>Status<select data-field="status">${['To do','In progress','Blocked','Done'].map(v=>`<option ${selected.status===v?'selected':''}>${v}</option>`).join('')}</select></label><label>Priority<select data-field="priority">${['high','medium','low'].map(v=>`<option ${selected.priority===v?'selected':''}>${v}</option>`).join('')}</select></label></div><label>Next action<textarea data-field="next">${escapeHtml(selected.next)}</textarea></label><h3>Action checklist</h3>${selected.actions.map((a,i)=>`<label class="check-row"><input type="checkbox" data-action="${i}" ${a.done?'checked':''}><span>${escapeHtml(a.text)}</span></label>`).join('')}<form id="addAction"><input name="action" aria-label="New checklist item" required placeholder="Add a checklist item"><button>Add</button></form><label>Blockers / waiting on<textarea data-field="blockers" placeholder="Who or what is holding this up?">${escapeHtml(selected.blockers)}</textarea></label><label>Working notes<textarea data-field="notes" placeholder="Your notes…">${escapeHtml(selected.notes)}</textarea></label>${nodes.some(n=>n.id===selected.id)?'<button id="taskSource">View highlighted evidence</button><button id="taskClause">Focus on map</button>':''}`:'<p>Select a task to see its next action, checklist and notes.</p>'}</div></div>`;
   $('newTask').onclick=()=>{const id=crypto.randomUUID();taskItems.push({id,manual:true,title:'New task',priority:'medium',status:'To do',owner:'',due:'',next:'',notes:'',blockers:'',actions:[],x:50,y:20});taskSelected=id;saveTasks();renderTasks();};
   $('taskView').onclick=()=>{taskMap=!taskMap;renderTasks();};
   $('taskSearch').oninput=e=>{const cursor=e.target.selectionStart;taskQuery=e.target.value;renderTasks();$('taskSearch').focus();$('taskSearch').setSelectionRange(cursor,cursor);};
@@ -261,8 +271,8 @@ function drawTaskLines(){const svg=$('taskConnections');if(!svg)return;const lis
 window.addEventListener('resize',drawTaskLines);
 // Preserve the original map, risk board, recommendation log and all map controls.
 const originalDecision=setRecommendationStatus;
-setRecommendationStatus=function(id,status){originalDecision(id,status);localStorage.setItem(taskStorageKey()+'-decisions',JSON.stringify(recommendationStatus));};
-saveNodeOffsets=function(){localStorage.setItem(taskStorageKey()+'-positions',JSON.stringify(nodeOffsets));};
+setRecommendationStatus=function(id,status){originalDecision(id,status);localStorage.setItem(mapStorageKey()+'-decisions',JSON.stringify(recommendationStatus));};
+saveNodeOffsets=function(){localStorage.setItem(mapStorageKey()+'-positions',JSON.stringify(nodeOffsets));};
 space.prepend(mapLinks);
 renderMapLinks=function(){
  if(!nodes.length || scene.hidden){mapLinks.innerHTML='';return;}
@@ -272,10 +282,11 @@ renderMapLinks=function(){
 };
 const mapToolbar=document.createElement('div');mapToolbar.className='map-toolbar';mapToolbar.innerHTML='<button aria-label="Zoom out">−</button><button aria-label="Zoom in">+</button><button aria-label="Reset view">Fit</button><button aria-label="Exit full screen">Exit full screen</button>';
 space.append(mapToolbar);mapToolbar.children[0].onclick=()=>{state.zoom=Math.max(28,state.zoom-12);applySceneTransform();};mapToolbar.children[1].onclick=()=>{state.zoom=Math.min(220,state.zoom+12);applySceneTransform();};mapToolbar.children[2].onclick=()=>{resetSceneForDocument();state.dossierHidden=true;render();};mapToolbar.children[3].onclick=()=>{if(document.fullscreenElement)document.exitFullscreen();app.classList.remove('fullscreen-fallback');};
-const views=document.querySelector('.view-switch');document.querySelector('.topbar').prepend(views);
+const views=document.querySelector('.view-switch');document.querySelector('.workspace-nav [data-page=mapping]').after(views);
+views.querySelectorAll('button').forEach(b=>b.addEventListener('click',()=>{showPage('mapping');render();}));
 const mapOptions=document.createElement('details');mapOptions.className='map-options';mapOptions.innerHTML='<summary>Map controls & filters</summary>';
 sidebar.querySelectorAll('.control-group:not(.upload-box)').forEach(control=>mapOptions.append(control));$('settingsPage').append(mapOptions);
-showPage('mapping');syncWorkspace();initAuth();
+showPage('mapping');syncWorkspace();
 const exportPdf=document.createElement('button');exportPdf.textContent='Download highlighted PDF';exportPdf.className='document-button';
 const exportReview=document.createElement('button');exportReview.textContent='Download review';exportReview.className='document-button';
 document.querySelector('.document-dialog-actions').prepend(exportPdf,exportReview);
