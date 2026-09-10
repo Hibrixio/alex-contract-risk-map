@@ -154,14 +154,32 @@ $('recordVoice').onclick=async()=>{
 $('stopVoice').onclick=()=>{if(recorder?.state==='recording')recorder.stop();};
 const baseRenderTasks=renderTasks;
 renderTasks=function(){
+ const editorWasOpen=Boolean($('tasksPage').querySelector('.task-edit-details')?.open);
  baseRenderTasks();const title=$('tasksPage').querySelector('.page-title');$('newTask').classList.add('primary');$('newTask').textContent='+ Add task';
  const addImport=document.createElement('button');addImport.textContent='Import / voice';addImport.onclick=showImport;title.append(addImport);
  const csv=document.createElement('button');csv.textContent='Export CSV';csv.onclick=()=>downloadFile('orbit-tasks.csv',toCsv([['Task','Owner','Due date','Status','Priority','Next action','Notes','Blockers'],...taskItems.map(t=>[t.title,t.owner,t.due,t.status,t.priority,t.next,t.notes,t.blockers])]),'text/csv');title.append(csv);
  const selected=taskItems.find(t=>t.id===taskSelected);if(selected){const remove=document.createElement('button');remove.textContent='Delete task';remove.className='danger';remove.onclick=()=>{const index=taskItems.indexOf(selected);taskItems.splice(index,1);saveTasks();taskSelected=taskItems[0]?.id || '';renderTasks();inform('Task deleted.');const undo=document.createElement('button');undo.textContent='Undo';undo.onclick=()=>{taskItems.splice(index,0,selected);saveTasks();taskSelected=selected.id;renderTasks();inform('Task restored.');};notice.append(undo);};$('tasksPage').querySelector('.task-editor').append(remove);}
  const board=document.createElement('section');board.className='task-board-table';board.innerHTML=`<header><div><span class="orbit-eyebrow">YOUR NEXT MOVES</span><h2>${currentUser?.firstName||'Your'} task board</h2><p>Orbit keeps the details you gave it in one place. Update the status as work moves forward.</p></div><strong>${taskItems.filter(t=>t.status==='To do'||t.status==='Blocked').length} need attention</strong></header><div class="task-board-table-wrap"><table><thead><tr><th>Task</th><th>When</th><th>Owner</th><th>Status</th><th>Actions</th></tr></thead><tbody>${taskItems.length?taskItems.map(t=>{const label=t.status==='To do'?'Not started':t.status==='In progress'?'Pending':t.status;return `<tr data-board-task="${t.id}"><td><strong>${escapeHtml(t.title)}</strong><small>${escapeHtml(t.next||t.notes||'No next action yet')}</small></td><td>${escapeHtml(t.due||'No due date')}</td><td>${escapeHtml(t.owner||'Unassigned')}</td><td><span class="task-status-chip ${label.toLowerCase().replaceAll(' ','-')}">${escapeHtml(label)}</span></td><td><button data-board-edit="${t.id}">Edit</button><button data-board-done="${t.id}">${t.status==='Done'?'Reopen':'Done'}</button><button data-board-delete="${t.id}">Delete</button></td></tr>`;}).join(''):'<tr><td colspan="5">No tasks yet. Add one above and Orbit will keep the details here.</td></tr>'}</tbody></table></div>`;$('tasksPage').append(board);
- board.querySelectorAll('[data-board-edit]').forEach(b=>b.onclick=()=>{taskSelected=b.dataset.boardEdit;renderTasks();document.querySelector('.task-editor')?.scrollIntoView({behavior:'smooth',block:'start'});});
+ const page=$('tasksPage'),assistant=page.querySelector('.task-assistant'),layout=page.querySelector('.tasks-layout'),editor=page.querySelector('.task-editor');
+ const split=document.createElement('div');split.className='task-workbench';layout.before(split);split.append(assistant);
+ const right=document.createElement('div');right.className='task-workbench-right';split.append(right);
+ if(taskMap){right.append(layout);layout.classList.add('task-map-layout');board.hidden=true;}
+ else{
+  const list=page.querySelector('#taskList');list.hidden=true;
+  right.append(board);
+  const details=document.createElement('details');details.className='task-edit-details';details.open=editorWasOpen;details.innerHTML='<summary>Edit selected task</summary>';details.append(editor);right.append(details);layout.hidden=true;
+  const newTask=$('newTask').onclick;$('newTask').onclick=()=>{newTask();const d=page.querySelector('.task-edit-details');if(d)d.open=true;page.querySelector('[data-field=title]')?.focus();};
+  board.querySelectorAll('[data-board-task]').forEach(row=>{const t=taskItems.find(t=>t.id===row.dataset.boardTask);row.hidden=!(taskFilter==='all'||t.status===taskFilter)||!`${t.title} ${t.owner} ${t.next} ${t.notes}`.toLowerCase().includes(taskQuery.toLowerCase());});
+ }
+ assistant.querySelector('strong').textContent='◎ Orbit';
+ assistant.querySelector('div>span').textContent=`Hi, ${currentUser?.firstName||'there'}. What are your tasks today?`;
+ board.querySelectorAll('[data-board-edit]').forEach(b=>b.onclick=()=>{taskSelected=b.dataset.boardEdit;renderTasks();const details=page.querySelector('.task-edit-details');if(details)details.open=true;page.querySelector('.task-editor')?.scrollIntoView({behavior:'smooth',block:'nearest'});});
  board.querySelectorAll('[data-board-done]').forEach(b=>b.onclick=()=>{const t=taskItems.find(x=>x.id===b.dataset.boardDone);if(t){t.status=t.status==='Done'?'To do':'Done';saveTasks();renderTasks();}});
  board.querySelectorAll('[data-board-delete]').forEach(b=>b.onclick=()=>{taskItems=taskItems.filter(x=>x.id!==b.dataset.boardDelete);if(taskSelected===b.dataset.boardDelete)taskSelected=taskItems[0]?.id||'';saveTasks();renderTasks();});
+ // Editing a field rerenders the task view; keep the editor open through that update.
+ page.querySelectorAll('[data-field]').forEach(input=>{const original=input.onchange;input.onchange=event=>{original?.(event);const d=page.querySelector('.task-edit-details');if(d)d.open=true;};});
+ requestAnimationFrame(drawTaskLines);
+
 };
 let calendarMonth=new Date();calendarMonth.setDate(1);
 function eventsKey(){return `orbit-events-${currentUser?.id || 'local'}`;}

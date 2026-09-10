@@ -174,3 +174,11 @@ test('deep receipt scan retries enlarged regions and rejects conflicting totals'
  test.skip(!process.env.ORBIT_RECEIPT_PHOTO,'Provide a local receipt photo for verification.');test.setTimeout(120000);
  await signedIn(page);await page.locator('.workspace-nav [data-page=finance]').click();await page.locator('#financeReceipt').setInputFiles(process.env.ORBIT_RECEIPT_PHOTO);await expect(page.locator('[data-finance-field=amount]')).toHaveValue('12100.00',{timeout:100000});
  });
+
+test('task bot sits left of table and table edit opens task details',async({page})=>{
+ await page.setViewportSize({width:1512,height:950});await signedIn(page);await page.locator('.workspace-nav [data-page=tasks]').click();
+ await page.locator('#taskAssistantInput').fill('add task Book meeting');await page.locator('#taskAssistantForm button').click();await expect(page.locator('[data-board-task]')).toHaveCount(1);
+ const bot=await page.locator('.task-assistant').boundingBox(),table=await page.locator('.task-board-table').boundingBox();expect(bot.x+bot.width).toBeLessThan(table.x);expect(Math.abs(bot.y-table.y)).toBeLessThan(5);
+ await expect(page.locator('#taskList')).toBeHidden();await page.locator('[data-board-edit]').click();await expect(page.locator('[data-field=title]')).toBeVisible();await page.locator('[data-field=title]').fill('Book review');await page.locator('[data-field=title]').blur();await expect(page.locator('[data-board-task]')).toContainText('Book review');await page.locator('[data-board-done]').click();await expect(page.locator('.task-status-chip')).toHaveText('Done');await page.locator('[data-board-delete]').click();await expect(page.locator('[data-board-task]')).toHaveCount(0);
+ await page.setViewportSize({width:650,height:900});await expect(page.locator('.task-assistant')).toBeVisible();
+});

@@ -27,3 +27,17 @@ html{scroll-padding-top:92px}
 html body{background:#f7f9fc;color:var(--orbit-navy)}body button{border-color:var(--orbit-line);color:var(--orbit-navy)}body button.primary{background:var(--orbit-navy-2);border-color:var(--orbit-navy-2)}body input,body textarea,body select{border-color:var(--orbit-line);color:var(--orbit-navy)}.workspace-nav{background:#f1f5fa;border-right-color:var(--orbit-line)}.workspace-nav button[aria-current=page]{background:#dbe8f6;color:var(--orbit-navy-2)}.workspace-header{border-bottom-color:var(--orbit-line)}.risk-pill.high{background:#fff0f2}.risk-pill.medium{background:#eef4fb}.risk-pill.low{background:#edf4fb}.accepted-amendment{border-color:#8aa7c7;border-left-color:var(--orbit-navy-2);background:#eef4fb}.accepted-amendment p,.accepted-amendment small{color:var(--orbit-navy)}
 
 .finance-upload-label.primary{background:#183b68!important;border-color:#183b68!important;color:white!important}
+
+/* Task workspace: conversation left, actionable table right. */
+#tasksPage .task-workbench{display:grid;grid-template-columns:minmax(280px,.75fr) minmax(0,1.7fr);gap:24px;align-items:start}
+#tasksPage .task-workbench>.task-assistant{position:sticky;top:100px;grid-column:auto;height:calc(100vh - 230px);min-height:400px;max-height:760px;margin:0}
+#tasksPage .task-assistant-messages{min-height:0;overflow:auto}
+#tasksPage .task-assistant form{flex-wrap:wrap}#tasksPage .task-assistant form input{flex:1 1 170px}
+#tasksPage .task-workbench-right{min-width:0}#tasksPage .task-board-table{margin:0;padding:18px}
+#tasksPage .task-board-table table{min-width:570px}#tasksPage .task-board-table-wrap{max-height:65vh;overflow:auto}
+#tasksPage .task-board-table th{position:sticky;top:0;z-index:2}
+#tasksPage .task-board-table td:last-child{min-width:155px}#tasksPage .task-board-table td small{max-width:260px;overflow-wrap:anywhere}
+#tasksPage .task-edit-details{margin-top:16px;border:1px solid #d5dfeb;border-radius:14px;background:white;padding:16px}
+#tasksPage .task-edit-details summary{cursor:pointer;font-weight:600}#tasksPage .task-edit-details .task-editor{min-height:0;border:0;padding:14px 0;max-height:none}
+#tasksPage .tasks-layout.task-map-layout{display:grid;grid-template-columns:minmax(0,1fr)}
+@media(max-width:850px){#tasksPage .task-workbench{grid-template-columns:minmax(0,1fr)}#tasksPage .task-workbench>.task-assistant{position:static;height:360px;min-height:300px}}
