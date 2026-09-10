@@ -3,3 +3,9 @@ assets/mou-render/
 .DS_Store
 
 .vercel
+
+node_modules/
+.env*
+test-results/
+playwright-report/
+dist/

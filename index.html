@@ -1530,8 +1530,16 @@
       .recommendation-table tr { break-inside: avoid; }
     }
   </style>
+  <link rel="stylesheet" href="workspace.css">
 </head>
-<body>
+<body data-page="mapping">
+  <div id="bootScreen" role="status"><div class="boot-orbit">◎</div><strong>orbit<span>.</span></strong><p>Making room for clarity.</p></div>
+  <section id="signInScreen" hidden><div class="auth-card"><div class="orbit-wordmark">◎ orbit.</div><h1>Welcome to your Orbit.</h1><p>Sign in with Google to get started.</p><div id="clerkSignIn"></div><p id="authMessage" role="status"></p><button id="retryAuth" hidden>Try again</button></div></section>
+  <header class="workspace-header"><button id="navToggle" aria-label="Toggle navigation">☰</button><strong>◎ orbit.</strong><span id="activeDocument">Your mapping workspace</span><button class="primary" id="topUpload">↑ Upload document</button><button id="topSource" disabled>View highlighted document</button><div id="userButton"></div></header>
+  <nav class="workspace-nav" aria-label="Workspace"><button data-page="mapping" aria-current="page">◎ <span>Mapping</span></button><button data-page="tasks">✓ <span>Tasks</span></button><button data-page="settings">⚙ <span>Settings</span></button><p>One document.<br>A clearer next step.</p></nav>
+  <section id="greeting" class="welcome"><span class="orbit-eyebrow">A LITTLE SPACE TO THINK</span><h1 id="greetingTitle">What do you need to map today?</h1><p>Turn a document into connected clauses, highlighted evidence, and next steps.</p><label for="clauseRequest">What should Orbit look for?</label><textarea id="clauseRequest" rows="2" placeholder="For example: payment deadlines, cancellation fees, confidentiality, and who is responsible. Leave blank to map all clauses."></textarea><div class="welcome-options"><label>Map type <select id="mapKind"><option value="clauses">Document clauses</option><option value="tasks">Tasks and action items</option></select></label><button id="reanalyze" hidden>Map again with this request</button><button id="pasteToggle">Paste text instead</button></div><div id="pasteArea" hidden></div><p id="workflowStatus" role="status" aria-live="polite">Start with Upload document at the top. PDF, Word, text, or an image.</p><div id="analysisNotice" hidden></div></section>
+  <section id="tasksPage" class="workspace-page" hidden></section>
+  <section id="settingsPage" class="workspace-page" hidden><h1>Settings</h1><p>Keep your workspace focused.</p><label><input id="reduceMotion" type="checkbox"> Reduce motion</label><label><input id="autoSource" type="checkbox"> Open highlighted document after analysis</label><p id="serviceStatus">Checking services…</p><p>Task edits and notes are saved in this browser for your signed-in account. Uploaded documents stay in memory; reload and upload again to reopen a document. Document text is sent to OpenRouter when you map it.</p><button id="clearWorkspace">Clear current document</button></section>
   <main class="app" id="app">
     <button class="sidebar-peek" id="sidebarPeek" type="button" aria-label="Open taskbar">orbit</button>
     <aside class="panel sidebar" id="sidebar">
@@ -1580,7 +1588,7 @@
           <strong>Upload a contract</strong>
           <span>Text, PDF, Word, or pasted clause text. Orbit will build the map from detected clauses.</span>
         </label>
-        <input id="documentUpload" type="file" accept=".txt,.md,.csv,.pdf,.doc,.docx,.rtf">
+        <input id="documentUpload" type="file" accept=".txt,.md,.csv,.pdf,.docx,.png,.jpg,.jpeg,.webp">
         <button class="filter-button" id="chooseFile" type="button"><span class="left"><span>Choose file</span></span></button>
         <p class="upload-message" id="uploadMessage">Drop a file here or choose one from your computer.</p>
         <textarea class="paste-box" id="documentPaste" rows="5" placeholder="Paste document text here"></textarea>
@@ -2900,12 +2908,13 @@
     async function analyzeWithOpenRouter(text, name) {
       const response = await fetch("/api/analyze", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text, name })
+        headers: { "Content-Type": "application/json", ...await window.orbitAuthHeaders() },
+        body: JSON.stringify({ text, name, request: document.getElementById("clauseRequest").value, kind: document.getElementById("mapKind").value })
       });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.error || "OpenRouter analysis failed.");
-      if (!Array.isArray(data.nodes) || !data.nodes.length) throw new Error("OpenRouter did not return clauses.");
+      if (!Array.isArray(data.nodes)) throw new Error("Analysis did not return a usable result.");
+      window.lastAnalysisResult = data;
       return data.nodes;
     }
 
@@ -3154,7 +3163,7 @@
     }
 
     function renderUploadedTextDocument(selectedId = state.selected) {
-      const sourceText = uploadedDocument.text || nodes.map(node => `${node.title}\n${node.clauses.join("\n")}`).join("\n\n");
+      const sourceText = uploadedDocument.text || nodes.map(node => `${escapeHtml(node.title)}\n${node.clauses.join("\n")}`).join("\n\n");
       documentPages.innerHTML = `
         <article class="uploaded-source-page" id="uploaded-source-text">
           <h3>${escapeHtml(uploadedDocument.name || state.uploadedName || "Uploaded document")}</h3>
@@ -3474,14 +3483,14 @@
                 const cat = categories[node.category];
                 return `
                   <article class="risk-card ${node.id === state.selected ? "selected" : ""}" draggable="true" data-card-id="${node.id}" data-risk="${risk}">
-                    <button class="risk-card-main" type="button" data-open-card="${node.id}" aria-label="Open ${node.title}">
-                      <small>${cat.label} · ${node.section}</small>
-                      <strong>${node.title}</strong>
-                      <span>${node.summary}</span>
+                    <button class="risk-card-main" type="button" data-open-card="${node.id}" aria-label="Open ${escapeHtml(node.title)}">
+                      <small>${cat.label} · ${escapeHtml(node.section)}</small>
+                      <strong>${escapeHtml(node.title)}</strong>
+                      <span>${escapeHtml(node.summary)}</span>
                     </button>
-                    <div class="card-move-controls" aria-label="Move ${node.title}">
-                      <button class="card-move" type="button" data-move-card="${node.id}" data-direction="-1" aria-label="Move ${node.title} up" ${index === 0 ? "disabled" : ""}>↑</button>
-                      <button class="card-move" type="button" data-move-card="${node.id}" data-direction="1" aria-label="Move ${node.title} down" ${index === visibleNodes.length - 1 ? "disabled" : ""}>↓</button>
+                    <div class="card-move-controls" aria-label="Move ${escapeHtml(node.title)}">
+                      <button class="card-move" type="button" data-move-card="${node.id}" data-direction="-1" aria-label="Move ${escapeHtml(node.title)} up" ${index === 0 ? "disabled" : ""}>↑</button>
+                      <button class="card-move" type="button" data-move-card="${node.id}" data-direction="1" aria-label="Move ${escapeHtml(node.title)} down" ${index === visibleNodes.length - 1 ? "disabled" : ""}>↓</button>
                     </div>
                   </article>
                 `;
@@ -3573,7 +3582,7 @@
       recommendationNodes().forEach(node => rows.push([
         priorityInfo[node.risk].label,
         node.section,
-        `${node.title}: ${node.summary}`,
+        `${escapeHtml(node.title)}: ${escapeHtml(node.summary)}`,
         node.ask,
         node.why
       ]));
@@ -3640,7 +3649,7 @@
                 const priority = priorityInfo[node.risk];
                 const decision = recommendationStatus[node.id] || "pending";
                 return `<tr class="${node.id === state.selected ? "selected" : ""}" style="--risk:${priority.color}">
-                  <td>${index + 1}</td><td><span class="priority-label">${priority.label}</span></td><td>${node.section}</td>
+                  <td>${index + 1}</td><td><span class="priority-label">${priority.label}</span></td><td>${escapeHtml(node.section)}</td>
                   <td><button class="recommendation-issue" type="button" data-open-recommendation="${node.id}"><strong>${escapeHtml(node.title)}</strong><span>${escapeHtml(node.summary)}</span></button></td>
                   <td>${escapeHtml(node.ask)}</td><td>${escapeHtml(node.why)}</td>
                   <td>
@@ -3684,7 +3693,7 @@
       document.querySelectorAll(".view-button").forEach(button => {
         button.setAttribute("aria-pressed", button.dataset.view === state.view ? "true" : "false");
       });
-      openDocumentButton.textContent = isSampleDocument() ? "View full MOU" : "View uploaded source";
+      openDocumentButton.textContent = "View highlighted document";
     }
 
     function renderFilters() {
@@ -3815,11 +3824,11 @@
             data-id="${node.id}"
             data-risk="${node.risk}"
             style="--accent:${cat.color}; --risk:${risk.color}; --size:${size}px; --pos:${nodePosition(index, total)}; --drag-x:${offset.x}px; --drag-y:${offset.y}px"
-            aria-label="${node.title}"
+            aria-label="${escapeHtml(node.title)}"
           >
             <span class="risk-dot"></span>
-            <small>${node.section}</small>
-            <strong>${node.title}</strong>
+            <small>${escapeHtml(node.section)}</small>
+            <strong>${escapeHtml(node.title)}</strong>
             <em>${risk.label}</em>
           </button>
         `;
@@ -3898,8 +3907,8 @@
       detail.style.setProperty("--accent", cat.color);
       detail.style.setProperty("--risk", risk.color);
       detail.innerHTML = `
-        <div class="detail-kicker">${cat.label} - ${node.section}</div>
-        <h2>${node.title}</h2>
+        <div class="detail-kicker">${cat.label} - ${escapeHtml(node.section)}</div>
+        <h2>${escapeHtml(node.title)}</h2>
         <span class="severity"><span class="dot" style="--accent:${risk.color}"></span>${risk.label}</span>
         <div class="decision-strip" data-decision="${decision}">
           <span>${decision === "pending" ? "Recommendation pending" : `Recommendation ${decision}`}</span>
@@ -3915,7 +3924,7 @@
           <div class="dossier-body">
             <div class="dossier-row">
               <span>Clause</span>
-              <strong>${node.section}</strong>
+              <strong>${escapeHtml(node.section)}</strong>
             </div>
             <div class="dossier-row">
               <span>Risk</span>
@@ -3923,11 +3932,11 @@
             </div>
             <div class="dossier-row">
               <span>Meaning</span>
-              <strong>${node.summary}</strong>
+              <strong>${escapeHtml(node.summary)}</strong>
             </div>
             <div class="dossier-row">
               <span>Impact</span>
-              <strong>${node.why}</strong>
+              <strong>${escapeHtml(node.why)}</strong>
             </div>
             <div class="dossier-row">
               <span>Ask</span>
@@ -3935,7 +3944,7 @@
             </div>
             <div class="dossier-row">
               <span>Evidence</span>
-              <strong>${source ? source.quote : "Mapped from the reviewed MOU text."}</strong>
+              <strong>${escapeHtml(source ? source.quote : "No exact source located.")}</strong>
             </div>
             <div class="dossier-row">
               <span>Tags</span>
@@ -3971,14 +3980,14 @@
         <section class="detail-section">
           <h3>Deadlines</h3>
           <div class="deadline-list">
-            ${deadlines.map(d => `<div class="deadline"><time>${d[0]}</time><span>${d[1]}</span></div>`).join("")}
+            ${(isSampleDocument() ? deadlines : []).map(d => `<div class="deadline"><time>${d[0]}</time><span>${d[1]}</span></div>`).join("")}
           </div>
         </section>
 
         <section class="detail-section">
           <h3>Questions For Review</h3>
           <div class="question-list">
-            ${questions.map(q => `<div class="question">${q}</div>`).join("")}
+            ${(isSampleDocument() ? questions : []).map(q => `<div class="question">${q}</div>`).join("")}
           </div>
         </section>
       `;
@@ -4004,8 +4013,8 @@
       mapDossier.innerHTML = `
         <div class="map-dossier-head">
           <div>
-            <div class="detail-kicker">${cat.label} - ${node.section}</div>
-            <h3>${node.title}</h3>
+            <div class="detail-kicker">${cat.label} - ${escapeHtml(node.section)}</div>
+            <h3>${escapeHtml(node.title)}</h3>
           </div>
           <button class="close" type="button" aria-label="Hide map information">x</button>
         </div>
@@ -4235,7 +4244,7 @@
       state.activeCategory = "all";
       state.search = "";
       search.value = "";
-      state.selected = "law-jurisdiction";
+      state.selected = nodes[0]?.id || "";
       state.rotation = 0;
       state.tilt = 18;
       state.zoom = 100;
@@ -4255,6 +4264,7 @@
     let startY = 0;
 
     space.addEventListener("pointerdown", event => {
+      if (event.target.closest(".map-toolbar")) return;
       if (state.view === "cards") return;
       if (event.target.closest(".empty-state, .map-dossier, .card-board, .recommendation-view, input, textarea, a")) return;
       const node = event.target.closest(".node");
@@ -4344,6 +4354,7 @@
     });
 
     window.addEventListener("keydown", event => {
+      if (event.target.closest("input,textarea,select,[contenteditable]")) return;
       if (event.key === "ArrowLeft") {
         state.rotation = Math.max(-360, state.rotation - 8);
         applySceneTransform();
@@ -4397,5 +4408,7 @@
 
     render();
   </script>
+  <script src="source-engine.js"></script>
+  <script src="workspace.js"></script>
 </body>
 </html>

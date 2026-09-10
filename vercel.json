@@ -1,0 +1,1 @@
+{"buildCommand":"npm run build","outputDirectory":"dist","functions":{"api/analyze.js":{"maxDuration":60},"api/ocr.js":{"maxDuration":60}},"headers":[{"source":"/api/(.*)","headers":[{"key":"Cache-Control","value":"no-store"}]}]}

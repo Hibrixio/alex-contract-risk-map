@@ -1,1 +1,5 @@
-assets/mou-render/
+node_modules/
+tests/
+test-results/
+playwright-report/
+.env*
