@@ -39,7 +39,7 @@ function restoreMapping(record){
  nodes=Array.isArray(record.nodes)?record.nodes:[];sources=record.sources || {};window.lastAnalysisResult=record.analysis;$('clauseRequest').value=record.request;
  try{recommendationStatus=JSON.parse(localStorage.getItem(mapStorageKey()+'-decisions') || '{}');nodeOffsets=JSON.parse(localStorage.getItem(mapStorageKey()+'-positions') || '{}');}catch{recommendationStatus={};nodeOffsets={};}
  if(!nodes.length){state.uploadedName=record.name;syncWorkspace();showPage('mapping');return processDocumentText(uploadedDocument.text,record.name);}
- state.uploadedName=record.name;state.view='map';resetSceneForDocument();state.dossierHidden=true;render();syncWorkspace();showPage('mapping');setUploadMessage('Saved mapping reopened. Your tasks are unchanged.','success');$('analysisNotice').hidden=true;
+ state.uploadedName=record.name;rebuildCardOrders();state.view='map';resetSceneForDocument();state.dossierHidden=true;render();syncWorkspace();showPage('mapping');setUploadMessage('Saved mapping reopened. Your tasks are unchanged.','success');$('analysisNotice').hidden=true;
 }
 function draftKey(){return mapStorageKey()+'-drafts';}
 function clauseDrafts(){try{return JSON.parse(localStorage.getItem(draftKey()) || '[]');}catch{return [];}}

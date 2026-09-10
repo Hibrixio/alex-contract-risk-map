@@ -85,3 +85,19 @@ test('every risk card is reachable without clipping at desktop and narrow widths
   expect(Math.abs(bounds.width-bounds.app)).toBeLessThan(3);
  }
 });
+
+test('saved mapping restores every risk card and count without another analysis',async({page})=>{
+ await signedIn(page);
+ let calls=0;const cards=Array.from({length:7},(_,i)=>({...clause,id:`saved-${i}`,title:`Saved clause ${i+1}`,risk:i<4?'high':'medium'}));
+ await page.route('**/api/analyze',r=>{calls++;return r.fulfill({json:{nodes:cards}});});
+ await page.locator('#documentUpload').setInputFiles({name:'saved-risks.txt',mimeType:'text/plain',buffer:Buffer.from('Client shall pay within 15 days. Document text.')});
+ await expect(page.locator('#workflowStatus')).toContainText('Ready');
+ await page.reload();await expect(page.locator('#bootScreen')).toBeHidden();
+ await page.locator('[data-reopen]').first().click();
+ await expect(page.locator('#workflowStatus')).toContainText('Saved mapping reopened');
+ await page.locator('.workspace-nav [data-view="cards"]').click();
+ await expect(page.locator('.risk-card')).toHaveCount(7);
+ await expect(page.locator('[data-risk-list="high"] .risk-card')).toHaveCount(4);
+ await expect(page.locator('[data-risk-list="medium"] .risk-card')).toHaveCount(3);
+ expect(calls).toBe(1);
+});

@@ -3438,9 +3438,12 @@
     }
 
     function orderedRiskNodes(risk) {
-      return (cardOrders[risk] || [])
-        .map(id => nodes.find(node => node.id === id))
-        .filter(Boolean);
+      const current = nodes.filter(node => node.risk === risk);
+      const byId = new Map(current.map(node => [node.id, node]));
+      const ids = [...new Set((cardOrders[risk] || []).filter(id => byId.has(id)))];
+      for (const node of current) if (!ids.includes(node.id)) ids.push(node.id);
+      cardOrders[risk] = ids;
+      return ids.map(id => byId.get(id));
     }
 
     function moveRiskCard(id, direction) {
