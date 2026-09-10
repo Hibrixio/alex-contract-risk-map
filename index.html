@@ -3172,7 +3172,7 @@
           <h3>${escapeHtml(uploadedDocument.name || state.uploadedName || "Uploaded document")}</h3>
           <p class="uploaded-source-note">This is extracted document text. Upload a PDF to see original pages with yellow source highlights.</p>
           <pre>${escapeHtml(sourceText)}</pre>
-          ${acceptedRecommendations[selectedId] ? `<aside class="accepted-amendment-overlay"><strong>Accepted Orbit wording</strong><span>${escapeHtml(acceptedRecommendations[selectedId])}</span></aside>` : ""}
+          ${acceptedRecommendations[selectedId] ? `<aside class="accepted-amendment-overlay"><strong>Change preview · Accepted Orbit wording</strong><del>${escapeHtml((sources[selectedId] || {}).quote || nodes.find(n=>n.id===selectedId)?.clauses?.[0] || "Original clause")}</del><span>${escapeHtml(acceptedRecommendations[selectedId])}</span></aside>` : ""}
         </article>
       `;
     }
@@ -3226,7 +3226,7 @@
                 const amendment = document.createElement("aside");
                 amendment.className = "accepted-amendment-overlay";
                 amendment.dataset.sourceNode = node.id;
-                amendment.innerHTML = `<strong>Accepted Orbit wording</strong><span>${escapeHtml(acceptedRecommendations[node.id])}</span>`;
+                amendment.innerHTML = `<strong>Change preview · Accepted Orbit wording</strong><del>${escapeHtml((sources[node.id] || {}).quote || node.clauses?.[0] || node.summary)}</del><span>${escapeHtml(acceptedRecommendations[node.id])}</span>`;
                 amendment.addEventListener("click", () => selectSourceNodeInDialog(node.id, false));
                 pageCanvas.appendChild(amendment);
               }
@@ -3285,7 +3285,7 @@
       index.innerHTML = `
         <h3>Highlighted source</h3>
         <p>${uploadedDocument.fileType === "pdf" ? "Click a clause to jump to the yellow highlight on the uploaded PDF." : "Click a clause to jump to the extracted source text."}</p>
-        ${acceptedRecommendations[selectedId] ? `<aside class="accepted-amendment"><strong>Accepted Orbit wording</strong><p>${escapeHtml(acceptedRecommendations[selectedId])}</p><small>This appears in Orbit’s review copy; the original upload is preserved.</small></aside>` : ""}
+        ${acceptedRecommendations[selectedId] ? `<aside class="accepted-amendment"><strong>Change preview · Accepted Orbit wording</strong><del>${escapeHtml((sources[selectedId] || {}).quote || nodes.find(n=>n.id===selectedId)?.clauses?.[0] || "Original clause")}</del><p>${escapeHtml(acceptedRecommendations[selectedId])}</p><small>This is a review preview. The original upload remains preserved.</small></aside>` : ""}
         <div class="highlight-jump-list">
           ${nodes.map((node, index) => {
             const page = uploadedSourcePageForNode(node.id);
@@ -3596,7 +3596,14 @@
       }
       renderRecommendationLog();
       renderDetail();
-      if (documentDialog.open) renderUploadedDocumentDialog(state.selected);
+      if (status === "accepted" && uploadedDocument.text) {
+        state.selected = id;
+        renderUploadedDocumentDialog(id);
+        if (!documentDialog.open) documentDialog.showModal();
+        requestAnimationFrame(() => scrollUploadedDocumentToNode(id, "smooth"));
+      } else if (documentDialog.open) {
+        renderUploadedDocumentDialog(state.selected);
+      }
     }
     window.setRecommendationStatus = setRecommendationStatus;
 

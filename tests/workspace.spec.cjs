@@ -136,7 +136,8 @@ test('accepting a recommendation adds its wording to the review document',async(
  await expect(page.locator('#workflowStatus')).toContainText('Ready');
  await page.locator('.workspace-nav [data-view="recommendations"]').click();
  await page.locator('[data-decision-action="accepted"]').first().click();
- await expect(page.locator('.accepted-amendment')).toContainText('Add a clear payment deadline');
- await page.locator('#topSource').click();
+ await expect(page.locator('.accepted-amendment').first()).toContainText('Add a clear payment deadline');
+ await expect(page.locator('#documentDialog')).toBeVisible();
+ await expect(page.locator('#documentDialog .accepted-amendment')).toContainText('Client shall pay within 15 days');
  await expect(page.locator('.accepted-amendment').last()).toContainText('Add a clear payment deadline');
 });
