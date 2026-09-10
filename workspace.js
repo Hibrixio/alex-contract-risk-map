@@ -9,6 +9,7 @@ window.orbitAuthHeaders = async () => {
 };
 function showPage(page) {
   document.body.dataset.page = page;
+  document.querySelectorAll('.workspace-page').forEach(section=>{section.hidden=section.id!==`${page}Page`;});
   $('tasksPage').hidden = page !== 'tasks'; $('settingsPage').hidden = page !== 'settings';
   $('greeting').hidden = page !== 'mapping'; app.hidden = page !== 'mapping' || !nodes.length;
   document.querySelectorAll('.workspace-nav button').forEach(b => b.setAttribute('aria-current', b.dataset.page === page ? 'page' : 'false'));
