@@ -159,3 +159,13 @@ test('finance reads photographed receipt total with OCR',async({page})=>{
  const png=await page.evaluate(()=>{const c=document.createElement('canvas');c.width=1200;c.height=400;const x=c.getContext('2d');x.fillStyle='white';x.fillRect(0,0,1200,400);x.fillStyle='black';x.font='48px Arial';x.fillText('SHOP RECEIPT',60,80);x.fillText('Subtotal 100.00',60,170);x.fillText('Grand Total $115.00',60,270);return c.toDataURL('image/png').split(',')[1];});
  await page.locator('#financeReceipt').setInputFiles({name:'receipt.png',mimeType:'image/png',buffer:Buffer.from(png,'base64')});await expect(page.locator('[data-finance-field=amount]')).toHaveValue('115.00',{timeout:100000});
 });
+
+test('deep receipt scan retries enlarged regions and rejects conflicting totals',async({page})=>{
+ await signedIn(page);
+ const result=await page.evaluate(async()=>{
+  const canvas=document.createElement('canvas');canvas.width=800;canvas.height=600;const blob=await new Promise(r=>canvas.toBlob(r));let calls=0,ended=false,dimensions=[];
+  window.Tesseract={createWorker:async()=>({recognize:async c=>{dimensions.push(c.width);calls++;return {data:{text:calls===1?'Unreadable small text':calls===2?'Grand Total 115.00':calls===3?'Grand Total 119.00':''}};},setParameters:async()=>{},terminate:async()=>{ended=true;}})};
+  const statuses=[];const detected=await OrbitReceipt.read(new File([blob],'distant.png'),s=>statuses.push(s));return {detected,calls,ended,dimensions,statuses};
+ });
+ expect(result.calls).toBe(6);expect(result.dimensions[1]).toBeGreaterThan(result.dimensions[0]);expect(result.detected.amount).toBe('');expect(result.ended).toBe(true);expect(result.statuses.join(' ')).toContain('Deep scan');
+});
