@@ -105,6 +105,7 @@ processDocumentText = async function(text,name) {
     setUploadMessage(`Mapping ${name}. Reading your requested topics…`,'busy');
     const result=await analyzeWithOpenRouter(uploadedDocument.text,name);
     if(currentUser?.id!==analysisOwner)return false;
+    if(!result.length)throw new Error("Analysis returned no clauses. Please retry; an empty result will not replace your saved mapping.");
     setNodesFromAnalysis(result,name,'Orbit'); state.dossierHidden=true; renderView();
     try{recommendationStatus=JSON.parse(localStorage.getItem(mapStorageKey()+'-decisions') || '{}');nodeOffsets=JSON.parse(localStorage.getItem(mapStorageKey()+'-positions') || '{}');}catch{recommendationStatus={};nodeOffsets={};}
     render();

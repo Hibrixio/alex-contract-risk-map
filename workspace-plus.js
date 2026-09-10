@@ -14,7 +14,7 @@ let mappingDb;
 function openMappingDb(){return mappingDb ||= new Promise((resolve,reject)=>{const r=indexedDB.open('orbit-workspace',1);r.onupgradeneeded=()=>r.result.createObjectStore('mappings',{keyPath:'key'});r.onsuccess=()=>resolve(r.result);r.onerror=()=>reject(r.error);});}
 async function mappingStore(mode,operation){const db=await openMappingDb();return new Promise((resolve,reject)=>{const tx=db.transaction('mappings',mode),request=operation(tx.objectStore('mappings'));let result;request.onsuccess=()=>result=request.result;tx.oncomplete=()=>resolve(result);tx.onerror=()=>reject(tx.error);tx.onabort=()=>reject(tx.error);});}
 async function saveRecentMapping(){
- if(!currentUser || !documentKey)return;
+ if(!currentUser || !documentKey || !nodes.length)return;
  try{
   const source={...uploadedDocument,fileUrl:''};
   if(uploadedDocument.fileType==='image'&&uploadedDocument.fileUrl)source.imageBlob=await fetch(uploadedDocument.fileUrl).then(r=>r.blob());
@@ -26,7 +26,7 @@ async function renderRecents(){
  if(!currentUser)return;
  const owner=currentUser.id;
  try{const all=await mappingStore('readonly',s=>s.getAll());if(currentUser?.id!==owner)return;const recent=all.filter(m=>m.owner===owner).sort((a,b)=>b.updated-a.updated);
- recentSection.innerHTML='<h2>Recent mappings <small>Saved on this browser</small></h2>'+ (recent.length?'<div class="recent-grid">'+recent.map((m,i)=>`<article><button data-reopen="${i}"><span>▤</span><strong>${escapeHtml(m.name)}</strong><small>${m.nodes.length} clauses · ${new Date(m.updated).toLocaleDateString()}</small></button><button data-remove-mapping="${i}" aria-label="Delete saved ${escapeHtml(m.name)}">×</button></article>`).join('')+'</div>':'<p>Your next uploaded document will be saved here, including its original PDF and highlights.</p>');
+ recentSection.innerHTML='<h2>Recent mappings <small>Saved on this browser</small></h2>'+ (recent.length?'<div class="recent-grid">'+recent.map((m,i)=>`<article><button data-reopen="${i}"><span>▤</span><strong>${escapeHtml(m.name)}</strong><small>${m.nodes?.length ? `${m.nodes.length} clauses` : "Needs repair — reopen to retry"} · ${new Date(m.updated).toLocaleDateString()}</small></button><button data-remove-mapping="${i}" aria-label="Delete saved ${escapeHtml(m.name)}">×</button></article>`).join('')+'</div>':'<p>Your next uploaded document will be saved here, including its original PDF and highlights.</p>');
  recentSection.querySelectorAll('[data-reopen]').forEach(b=>b.onclick=()=>restoreMapping(recent[Number(b.dataset.reopen)]));
  recentSection.querySelectorAll('[data-remove-mapping]').forEach(b=>b.onclick=async()=>{if(busy)return;await mappingStore('readwrite',s=>s.delete(recent[Number(b.dataset.removeMapping)].key));renderRecents();});
  }catch{recentSection.innerHTML='<p>Saved documents are unavailable. Browser storage may be disabled.</p>';}
@@ -36,8 +36,9 @@ function restoreMapping(record){
  releaseDocument();uploadedDocument=record.source;documentKey=record.documentKey;
  if(uploadedDocument.pdfData)uploadedDocument.fileUrl=URL.createObjectURL(new Blob([uploadedDocument.pdfData],{type:'application/pdf'}));
  else if(uploadedDocument.imageBlob)uploadedDocument.fileUrl=URL.createObjectURL(uploadedDocument.imageBlob);
- nodes=record.nodes;sources=record.sources;window.lastAnalysisResult=record.analysis;$('clauseRequest').value=record.request;
+ nodes=Array.isArray(record.nodes)?record.nodes:[];sources=record.sources || {};window.lastAnalysisResult=record.analysis;$('clauseRequest').value=record.request;
  try{recommendationStatus=JSON.parse(localStorage.getItem(mapStorageKey()+'-decisions') || '{}');nodeOffsets=JSON.parse(localStorage.getItem(mapStorageKey()+'-positions') || '{}');}catch{recommendationStatus={};nodeOffsets={};}
+ if(!nodes.length){state.uploadedName=record.name;syncWorkspace();showPage('mapping');return processDocumentText(uploadedDocument.text,record.name);}
  state.uploadedName=record.name;state.view='map';resetSceneForDocument();state.dossierHidden=true;render();syncWorkspace();showPage('mapping');setUploadMessage('Saved mapping reopened. Your tasks are unchanged.','success');$('analysisNotice').hidden=true;
 }
 function draftKey(){return mapStorageKey()+'-drafts';}
