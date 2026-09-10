@@ -101,3 +101,15 @@ test('saved mapping restores every risk card and count without another analysis'
  await expect(page.locator('[data-risk-list="medium"] .risk-card')).toHaveCount(3);
  expect(calls).toBe(1);
 });
+
+test('trackpad wheel scrolls risk cards instead of being consumed by 3D zoom',async({page})=>{
+ await signedIn(page);
+ await page.route('**/api/analyze',r=>r.fulfill({json:{nodes:Array.from({length:15},(_,i)=>({...clause,id:`scroll-${i}`,title:`Clause ${i}`,risk:'high'}))}}));
+ await page.locator('#documentUpload').setInputFiles({name:'scroll.txt',mimeType:'text/plain',buffer:Buffer.from('Client shall pay within 15 days. Document text.')});
+ await expect(page.locator('#workflowStatus')).toContainText('Ready');
+ await page.locator('.workspace-nav [data-view="cards"]').click();
+ await page.locator('.risk-card-main').first().hover();
+ const before=await page.evaluate(()=>window.scrollY);
+ await page.mouse.wheel(0,500);
+ await expect.poll(()=>page.evaluate(()=>window.scrollY)).toBeGreaterThan(before+100);
+});

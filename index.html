@@ -4329,6 +4329,7 @@
     });
 
     space.addEventListener("wheel", event => {
+      if (state.view !== "map") return;
       event.preventDefault();
       state.zoom = Math.max(28, Math.min(220, state.zoom - Math.sign(event.deltaY) * 6));
       applySceneTransform();
