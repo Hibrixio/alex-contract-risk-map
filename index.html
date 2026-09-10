@@ -3269,9 +3269,11 @@
       const openPdfLink = headerLinks[0];
       const downloadWordLink = headerLinks[1];
       title.textContent = uploadedDocument.name || state.uploadedName || "Uploaded document";
-      subtitle.textContent = uploadedDocument.fileType === "pdf"
-        ? "Uploaded PDF with yellow source highlights. Select any analyzed clause to jump to its page."
-        : "Extracted source text from the document you uploaded and analyzed.";
+      subtitle.textContent = acceptedRecommendations[selectedId]
+        ? "Change preview on the left · Original uploaded document on the right."
+        : uploadedDocument.fileType === "pdf"
+          ? "Uploaded PDF with yellow source highlights. Select any analyzed clause to jump to its page."
+          : "Extracted source text from the document you uploaded and analyzed.";
       if (openPdfLink) {
         openPdfLink.hidden = uploadedDocument.fileType !== "pdf" || !uploadedDocument.fileUrl;
         openPdfLink.href = uploadedDocument.fileUrl || "#";
@@ -3285,7 +3287,7 @@
       index.innerHTML = `
         <h3>Highlighted source</h3>
         <p>${uploadedDocument.fileType === "pdf" ? "Click a clause to jump to the yellow highlight on the uploaded PDF." : "Click a clause to jump to the extracted source text."}</p>
-        ${acceptedRecommendations[selectedId] ? `<aside class="accepted-amendment"><strong>Change preview · Accepted Orbit wording</strong><del>${escapeHtml((sources[selectedId] || {}).quote || nodes.find(n=>n.id===selectedId)?.clauses?.[0] || "Original clause")}</del><p>${escapeHtml(acceptedRecommendations[selectedId])}</p><small>This is a review preview. The original upload remains preserved.</small></aside>` : ""}
+        ${acceptedRecommendations[selectedId] ? `<section class="change-preview-pane" aria-label="Accepted change preview"><div class="accepted"><strong>Accepted preview</strong><p>${escapeHtml(acceptedRecommendations[selectedId])}</p><small>Orbit review wording</small></div><div><strong>Original document</strong><del>${escapeHtml((sources[selectedId] || {}).quote || nodes.find(n=>n.id===selectedId)?.clauses?.[0] || "Original clause")}</del><small>Uploaded source, unchanged</small></div></section>` : ""}
         <div class="highlight-jump-list">
           ${nodes.map((node, index) => {
             const page = uploadedSourcePageForNode(node.id);

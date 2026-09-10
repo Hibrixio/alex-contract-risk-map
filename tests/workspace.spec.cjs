@@ -138,6 +138,6 @@ test('accepting a recommendation adds its wording to the review document',async(
  await page.locator('[data-decision-action="accepted"]').first().click();
  await expect(page.locator('.accepted-amendment').first()).toContainText('Add a clear payment deadline');
  await expect(page.locator('#documentDialog')).toBeVisible();
- await expect(page.locator('#documentDialog .accepted-amendment')).toContainText('Client shall pay within 15 days');
+ await expect(page.locator('#documentDialog .change-preview-pane')).toContainText('Client shall pay within 15 days');
  await expect(page.locator('.accepted-amendment').last()).toContainText('Add a clear payment deadline');
 });
