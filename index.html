@@ -3936,6 +3936,7 @@
             <button class="document-button" type="button" data-open-document="${isSampleDocument() ? (articlePdfPages[source.page] || 1) : (source.pageNumber || source.page || 1)}">
               ${isSampleDocument() ? "Open source page" : "Open uploaded source"}
             </button>
+            ${decision === "accepted" ? `<button class="document-button primary" type="button" data-preview-changes="${node.id}">Preview changes</button>` : ""}
           </div>
         </section>
       ` : "";
@@ -4030,6 +4031,14 @@
       `;
       detail.querySelectorAll("[data-detail-decision]").forEach(button => {
         button.addEventListener("click", () => setRecommendationStatus(node.id, button.dataset.detailDecision));
+      });
+      detail.querySelectorAll("[data-preview-changes]").forEach(button => {
+        button.addEventListener("click", () => {
+          const id = button.dataset.previewChanges;
+          renderUploadedDocumentDialog(id);
+          if (!documentDialog.open) documentDialog.showModal();
+          requestAnimationFrame(() => scrollUploadedDocumentToNode(id, "smooth"));
+        });
       });
     }
 
