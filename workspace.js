@@ -107,7 +107,7 @@ processDocumentText = async function(text,name) {
     if(currentUser?.id!==analysisOwner)return false;
     if(!result.length)throw new Error("Analysis returned no clauses. Please retry; an empty result will not replace your saved mapping.");
     setNodesFromAnalysis(result,name,'Orbit'); state.dossierHidden=true; renderView();
-    try{recommendationStatus=JSON.parse(localStorage.getItem(mapStorageKey()+'-decisions') || '{}');nodeOffsets=JSON.parse(localStorage.getItem(mapStorageKey()+'-positions') || '{}');}catch{recommendationStatus={};nodeOffsets={};}
+    try{recommendationStatus=JSON.parse(localStorage.getItem(mapStorageKey()+'-decisions') || '{}');acceptedRecommendations=JSON.parse(localStorage.getItem(mapStorageKey()+'-accepted') || '{}');nodeOffsets=JSON.parse(localStorage.getItem(mapStorageKey()+'-positions') || '{}');}catch{recommendationStatus={};acceptedRecommendations={};nodeOffsets={};}
     render();
     const missing=window.lastAnalysisResult?.unmatchedRequests || [];
     $('analysisNotice').hidden=false;
@@ -272,7 +272,7 @@ function drawTaskLines(){const svg=$('taskConnections');if(!svg)return;const lis
 window.addEventListener('resize',drawTaskLines);
 // Preserve the original map, risk board, recommendation log and all map controls.
 const originalDecision=setRecommendationStatus;
-setRecommendationStatus=function(id,status){originalDecision(id,status);localStorage.setItem(mapStorageKey()+'-decisions',JSON.stringify(recommendationStatus));};
+setRecommendationStatus=function(id,status){if(status==='accepted'){const node=nodes.find(item=>item.id===id);if(node)acceptedRecommendations[id]=node.ask||'Review and confirm this clause before signing.';}else delete acceptedRecommendations[id];originalDecision(id,status);localStorage.setItem(mapStorageKey()+'-decisions',JSON.stringify(recommendationStatus));localStorage.setItem(mapStorageKey()+'-accepted',JSON.stringify(acceptedRecommendations));};
 saveNodeOffsets=function(){localStorage.setItem(mapStorageKey()+'-positions',JSON.stringify(nodeOffsets));};
 space.prepend(mapLinks);
 renderMapLinks=function(){

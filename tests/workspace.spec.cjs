@@ -113,3 +113,30 @@ test('trackpad wheel scrolls risk cards instead of being consumed by 3D zoom',as
  await page.mouse.wheel(0,500);
  await expect.poll(()=>page.evaluate(()=>window.scrollY)).toBeGreaterThan(before+100);
 });
+test('Google Calendar consent, event read/edit/create/delete and disconnect',async({page})=>{
+ await signedIn(page);
+ await page.route('**/api/config',r=>r.fulfill({json:{clerkPublishableKey:'pk_test_ZXhhbXBsZS5jb20k',googleCalendarClientId:'fixture.apps.googleusercontent.com'}}));
+ await page.route('https://accounts.google.com/gsi/client',r=>r.fulfill({contentType:'text/javascript',body:`window.google={accounts:{oauth2:{initTokenClient:o=>({requestAccessToken:()=>o.callback({access_token:'fixture-google',expires_in:3600})}),revoke:(t,cb)=>cb()}}};`}));
+ const day=new Date().toISOString().slice(0,10);let event={id:'google-one',summary:'Google planning',start:{dateTime:day+'T14:00:00Z'},end:{dateTime:day+'T15:00:00Z'},etag:'"v1"'};let writes=[];
+ await page.route('https://www.googleapis.com/calendar/v3/**',r=>{const req=r.request(),url=req.url();if(req.method()!=='GET'){writes.push({method:req.method(),body:req.postDataJSON(),url});return r.fulfill({json:event});}return r.fulfill({json:url.includes('calendarList')?{items:[{id:'primary-account',summary:'My Google calendar',accessRole:'owner',primary:true}]}:{items:[event]}});});
+ await page.reload();await expect(page.locator('#bootScreen')).toBeHidden();await page.locator('[data-page=calendar]').click();
+ await page.getByRole('button',{name:'Connect Google Calendar',exact:true}).click();
+ await expect(page.locator('.google-event')).toHaveCount(1);await page.locator('.google-event').click();
+ await page.locator('#googleEventForm [name=summary]').fill('Updated planning');await page.locator('#googleEventSave').click();
+ await expect.poll(()=>writes.length).toBe(1);expect(writes[0].method).toBe('PATCH');expect(writes[0].body.summary).toBe('Updated planning');expect(writes[0].body.start).toBeUndefined();
+ await page.locator('#googleNew').click();await page.locator('#googleEventForm [name=summary]').fill('New event');await page.locator('#googleEventSave').click();await expect.poll(()=>writes.length).toBe(2);expect(writes[1].method).toBe('POST');expect(writes[1].body.start.dateTime).toBeTruthy();
+ await page.locator('.google-event').click();page.once('dialog',d=>d.accept());await page.locator('#googleEventDelete').click();await expect.poll(()=>writes.length).toBe(3);expect(writes[2].method).toBe('DELETE');
+ await page.locator('#googleDisconnect').click();await expect(page.locator('.google-event')).toHaveCount(0);await expect(page.locator('#googleConnect')).toBeVisible();
+});
+
+test('accepting a recommendation adds its wording to the review document',async({page})=>{
+ await signedIn(page);
+ await page.route('**/api/analyze',r=>r.fulfill({json:{nodes:[{...clause,id:'accepted-clause',title:'Payment',ask:'Add a clear payment deadline and late-payment remedy.',clauses:['Client shall pay within 15 days.']}]}}));
+ await page.locator('#documentUpload').setInputFiles({name:'accepted.txt',mimeType:'text/plain',buffer:Buffer.from('Client shall pay within 15 days. Document text.')});
+ await expect(page.locator('#workflowStatus')).toContainText('Ready');
+ await page.locator('.workspace-nav [data-view="recommendations"]').click();
+ await page.locator('[data-decision-action="accepted"]').first().click();
+ await expect(page.locator('.accepted-amendment')).toContainText('Add a clear payment deadline');
+ await page.locator('#topSource').click();
+ await expect(page.locator('.accepted-amendment').last()).toContainText('Add a clear payment deadline');
+});
