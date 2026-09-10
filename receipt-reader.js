@@ -1,7 +1,7 @@
 /* Receipt extraction runs locally; contract mapping state is never modified. */
 (function(root){
  function detectTotal(text){
-  const lines=String(text).split(/\r?\n/), candidates=[];
+  const lines=String(text).split(/\r?\n/).map(line=>line.trim()).filter(Boolean), candidates=[];
   for(let i=0;i<lines.length;i++){
    const line=lines[i];
    if(/sub\s*total|tax\s*total|total\s*(?:tax|items|savings)|cash\s*tendered|change\s*due/i.test(line))continue;
@@ -19,15 +19,42 @@
   return new Set(best.map(c=>c.amount)).size===1?best[0]:{amount:'',evidence:'Multiple totals found — enter the receipt total.'};
  }
  async function read(file,progress){
-  let worker;
+  let worker,ocrLines=[];
   async function ocr(canvas){
    if(!root.Tesseract)await loadScript('/assets/vendor/tesseract/tesseract.min.js');
    worker ||= await Tesseract.createWorker('eng',1,{workerPath:'/assets/vendor/tesseract/worker.min.js'});
-   const result=await worker.recognize(canvas);return result.data.text;
+   const result=await worker.recognize(canvas,{}, {text:true,blocks:true});ocrLines=(result.data.blocks||[]).flatMap(b=>(b.paragraphs||[]).flatMap(p=>p.lines||[]));return result.data.text;
   }
   async function scan(canvas){
    const initial=await ocr(canvas);
    if(detectTotal(initial).amount)return initial;
+   // Locate the printed receipt using transaction text, avoiding table glare and hands.
+   const anchors=ocrLines.filter(line=>/merchant|batch|sale|account|customer|receipt|total|payment|debit|credit|subtotal/i.test(line.text||'')&&line.bbox);
+   let scanSource=canvas;
+   if(anchors.length>=3){
+    const boxes=anchors.map(l=>l.bbox),left=Math.min(...boxes.map(b=>b.x0)),right=Math.max(...boxes.map(b=>b.x1)),top=Math.min(...boxes.map(b=>b.y0)),bottom=Math.max(...boxes.map(b=>b.y1));
+    const padX=(right-left)*.15,padY=(bottom-top)*.2,x=Math.max(0,left-padX),y=Math.max(0,top-padY),w=Math.min(canvas.width-x,right-left+2*padX),h=Math.min(canvas.height-y,bottom-top+2*padY);
+    scanSource=document.createElement('canvas');scanSource.width=Math.ceil(w);scanSource.height=Math.ceil(h);scanSource.getContext('2d').drawImage(canvas,x,y,w,h,0,0,w,h);
+   }
+   // Camera tilt breaks OCR lines: try deskewed views before dividing the photo.
+   const rotatedResults=[];
+   for(const degrees of [12,-12,24,-24]){
+    progress(`Deep scan — straightening receipt (${degrees}°)…`);
+    const angle=degrees*Math.PI/180,scale=Math.min(2,3000/Math.max(scanSource.width,scanSource.height));
+    const rotated=document.createElement('canvas');
+    rotated.width=Math.ceil((Math.abs(scanSource.width*Math.cos(angle))+Math.abs(scanSource.height*Math.sin(angle)))*scale);
+    rotated.height=Math.ceil((Math.abs(scanSource.height*Math.cos(angle))+Math.abs(scanSource.width*Math.sin(angle)))*scale);
+    const ctx=rotated.getContext('2d');ctx.fillStyle='white';ctx.fillRect(0,0,rotated.width,rotated.height);
+    ctx.translate(rotated.width/2,rotated.height/2);ctx.rotate(angle);ctx.scale(scale,scale);ctx.drawImage(scanSource,-scanSource.width/2,-scanSource.height/2);
+    try{await worker.setParameters({tessedit_pageseg_mode:'11'});const result=await ocr(rotated);if(detectTotal(result).amount)rotatedResults.push(result);}
+    finally{rotated.width=rotated.height=0;}
+   }
+   await worker.setParameters({tessedit_pageseg_mode:'3'});
+   if(scanSource!==canvas)scanSource.width=scanSource.height=0;
+   if(rotatedResults.length){
+    const totals=rotatedResults.map(detectTotal);
+    return new Set(totals.map(t=>t.amount)).size===1?rotatedResults[0]:totals.map(t=>'Grand Total '+t.amount).join('\n');
+   }
    // Overlapping regions enlarge small print without requiring an enormous full-image canvas.
    const attempts=[];
    for(let pass=0;pass<5;pass++){

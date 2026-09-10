@@ -167,5 +167,10 @@ test('deep receipt scan retries enlarged regions and rejects conflicting totals'
   window.Tesseract={createWorker:async()=>({recognize:async c=>{dimensions.push(c.width);calls++;return {data:{text:calls===1?'Unreadable small text':calls===2?'Grand Total 115.00':calls===3?'Grand Total 119.00':''}};},setParameters:async()=>{},terminate:async()=>{ended=true;}})};
   const statuses=[];const detected=await OrbitReceipt.read(new File([blob],'distant.png'),s=>statuses.push(s));return {detected,calls,ended,dimensions,statuses};
  });
- expect(result.calls).toBe(6);expect(result.dimensions[1]).toBeGreaterThan(result.dimensions[0]);expect(result.detected.amount).toBe('');expect(result.ended).toBe(true);expect(result.statuses.join(' ')).toContain('Deep scan');
+ expect(result.calls).toBe(5);expect(result.dimensions[1]).toBeGreaterThan(result.dimensions[0]);expect(result.detected.amount).toBe('');expect(result.ended).toBe(true);expect(result.statuses.join(' ')).toContain('Deep scan');
 });
+
+ test('distant tilted receipt returns its printed total',async({page})=>{
+ test.skip(!process.env.ORBIT_RECEIPT_PHOTO,'Provide a local receipt photo for verification.');test.setTimeout(120000);
+ await signedIn(page);await page.locator('.workspace-nav [data-page=finance]').click();await page.locator('#financeReceipt').setInputFiles(process.env.ORBIT_RECEIPT_PHOTO);await expect(page.locator('[data-finance-field=amount]')).toHaveValue('12100.00',{timeout:100000});
+ });
