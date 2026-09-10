@@ -66,3 +66,22 @@ test('empty analysis is an error and is never saved as a completed mapping',asyn
 test('previously saved zero-clause records repair from retained source',async({page})=>{
  await signedIn(page);await page.locator('#documentUpload').setInputFiles(fixture);await expect(page.locator('#workflowStatus')).toContainText('Ready');await page.evaluate(async()=>{const db=await new Promise(r=>{const open=indexedDB.open('orbit-workspace',1);open.onsuccess=()=>r(open.result);});await new Promise(resolve=>{const tx=db.transaction('mappings','readwrite'),store=tx.objectStore('mappings'),req=store.getAll();req.onsuccess=()=>{for(const record of req.result){record.nodes=[];record.sources={};store.put(record);}};tx.oncomplete=resolve;});});await page.reload();await expect(page.locator('#recentMappings')).toContainText('Needs repair');await page.locator('#recentMappings [data-reopen]').click();await expect(page.locator('#workflowStatus')).toContainText('Ready');await expect(page.locator('#ring .node')).toHaveCount(1);await page.locator('#topSource').click();await expect(page.locator('#uploaded-document-page-2 canvas')).toBeVisible();
 });
+test('every risk card is reachable without clipping at desktop and narrow widths',async({page})=>{
+ await signedIn(page);
+ const cards=Array.from({length:12},(_,i)=>({...clause,id:`risk-${i}`,title:`Clause ${i+1}`,risk:i%2?'medium':'high'}));
+ await page.route('**/api/analyze',r=>r.fulfill({json:{nodes:cards}}));
+ await page.locator('#documentUpload').setInputFiles({name:'risks.txt',mimeType:'text/plain',buffer:Buffer.from('Client shall pay within 15 days. Document text.')});
+ await expect(page.locator('#workflowStatus')).toContainText('Ready');
+ await page.locator('.workspace-nav [data-view="cards"]').click();
+ for(const width of [1512,900,600]){
+  await page.setViewportSize({width,height:850});
+  await expect(page.locator('.risk-card')).toHaveCount(12);
+  for(const card of await page.locator('.risk-card-main').all()){
+   await card.evaluate(el=>el.scrollIntoView({block:"center"}));
+   await expect(card).toBeInViewport();
+   expect(await card.evaluate(el=>{const r=el.getBoundingClientRect();const hit=document.elementFromPoint(r.x+r.width/2,r.y+r.height/2);return {ok:el===hit||el.contains(hit),hit:hit?.outerHTML.slice(0,200),y:r.y};})).toMatchObject({ok:true});
+  }
+  const bounds=await page.locator('.stage-panel').evaluate(el=>({width:el.getBoundingClientRect().width,app:el.parentElement.getBoundingClientRect().width}));
+  expect(Math.abs(bounds.width-bounds.app)).toBeLessThan(3);
+ }
+});
