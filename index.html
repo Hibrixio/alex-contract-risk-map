@@ -3,7 +3,13 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>UCC Intellibus MOU Information Map</title>
+  <title>Orbit · Contract mind map</title>
+  <link rel="stylesheet" href="orbit-theme.css">
+  <script src="assets/vendor/mammoth/mammoth.browser.js"></script>
+  <script type="module">
+    import * as pdfjsLib from "./assets/vendor/pdfjs/pdf.min.mjs";
+    window.pdfjsLib = pdfjsLib;
+  </script>
   <style>
     :root {
       color-scheme: dark;
@@ -1527,9 +1533,13 @@
 </head>
 <body>
   <main class="app" id="app">
-    <aside class="panel sidebar">
+    <button class="sidebar-peek" id="sidebarPeek" type="button" aria-label="Open taskbar">orbit</button>
+    <aside class="panel sidebar" id="sidebar">
+      <button class="sidebar-toggle" id="sidebarToggle" type="button" aria-label="Collapse taskbar">‹</button>
       <section class="brand">
-        <h1>UCC Intellibus MOU Information Map</h1>
+        <div class="orbit-wordmark"><span aria-hidden="true">◎</span> orbit<span class="orbit-brand-dot">.</span></div>
+        <span class="orbit-eyebrow">YOUR DOCUMENT WORKSPACE</span>
+        <h1>Contract mind map</h1>
         <p>Interactive 3D view of the key obligations, binding provisions, information controls, and open issues in the UCC and Intellibus draft MOU.</p>
       </section>
 
@@ -1557,6 +1567,29 @@
         <button class="view-button" type="button" data-view="cards" aria-pressed="false">Risk cards</button>
         <button class="view-button" type="button" data-view="recommendations" aria-pressed="false">Recommendation log</button>
       </div>
+
+      <section class="control-group upload-box" aria-label="Document upload">
+        <div class="control-title">
+          <span>Document</span>
+          <span id="documentStatus">Empty</span>
+        </div>
+        <p class="file-mode-warning" id="fileModeWarning" hidden>
+          Open the Vercel link or localhost preview for OpenRouter analysis. This local file view can only run the fallback parser.
+        </p>
+        <label class="upload-drop" for="documentUpload">
+          <strong>Upload a contract</strong>
+          <span>Text, PDF, Word, or pasted clause text. Orbit will build the map from detected clauses.</span>
+        </label>
+        <input id="documentUpload" type="file" accept=".txt,.md,.csv,.pdf,.doc,.docx,.rtf">
+        <button class="filter-button" id="chooseFile" type="button"><span class="left"><span>Choose file</span></span></button>
+        <p class="upload-message" id="uploadMessage">Drop a file here or choose one from your computer.</p>
+        <textarea class="paste-box" id="documentPaste" rows="5" placeholder="Paste document text here"></textarea>
+        <div class="upload-actions">
+          <button class="filter-button" id="analyzePaste" type="button"><span class="left"><span>Analyze text</span></span></button>
+          <button class="filter-button" id="loadSample" type="button"><span class="left"><span>Load sample MOU</span></span></button>
+          <button class="filter-button danger" id="clearDocument" type="button"><span class="left"><span>Clear</span></span></button>
+        </div>
+      </section>
 
       <section class="control-group" aria-label="Risk filters">
         <div class="control-title">
@@ -1649,6 +1682,7 @@
         </div>
         <div class="topbar-actions">
           <input class="search" id="search" type="search" placeholder="Search clauses" aria-label="Search clauses">
+          <button class="document-button" id="fullscreenMap" type="button">Full screen map</button>
           <button class="document-button" id="openDocument" type="button">View full MOU</button>
           <a class="document-button" href="assets/documents/ucc-intellibus-mou-draft-v1.5.docx" download>Download Word</a>
         </div>
@@ -1659,8 +1693,17 @@
           <div class="orbit one"></div>
           <div class="orbit two"></div>
           <div class="orbit three"></div>
+          <svg class="map-links" id="mapLinks" aria-hidden="true"></svg>
           <button class="core" id="core" type="button"><span>UCC Intellibus MOU</span></button>
           <div class="ring" id="ring"></div>
+        </div>
+        <div class="empty-state" id="emptyState">
+          <div>
+            <span>Orbit clause cloud</span>
+            <h2>Upload a document to generate the mind map.</h2>
+            <p>Detected clauses, recommendations, source notes, and risk groups will appear here after analysis.</p>
+            <button class="document-button" id="emptyUploadButton" type="button">Upload document</button>
+          </div>
         </div>
         <div class="map-dossier" id="mapDossier" style="--accent: var(--amber)" aria-live="polite"></div>
         <div class="card-board" id="cardBoard" aria-label="Color-coded contract risk cards" hidden></div>
@@ -1776,7 +1819,7 @@
       "XVIII-XIX": 9
     };
 
-    const nodes = [
+    const sampleNodes = [
           {
                 "id": "nature",
                 "title": "Non-Binding Framework",
@@ -2295,7 +2338,7 @@
           ]
     ];
 
-    const sources = {
+    const sampleSources = {
           "nature": {
                 "page": "IV",
                 "quote": "Non-binding framework; legal or financial obligations require a separate agreement.",
@@ -2595,19 +2638,39 @@
       view: "map",
       mode: "all",
       activeCategory: "all",
-      selected: "law-jurisdiction",
+      selected: "",
       rotation: 0,
       tilt: 18,
-      zoom: 100,
+      zoom: 92,
       panX: 0,
       panY: 0,
       depth: 68,
-      search: ""
+      search: "",
+      sidebarCollapsed: false,
+      uploadedName: "",
+      dossierHidden: false
+    };
+
+    let nodes = [];
+    let sources = {};
+    let recommendationStatus = {};
+    let uploadedDocument = {
+      name: "",
+      text: "",
+      fileUrl: "",
+      fileType: "",
+      pdfData: null,
+      pdfPages: []
     };
 
     const app = document.getElementById("app");
+    const sidebar = document.getElementById("sidebar");
+    const sidebarToggle = document.getElementById("sidebarToggle");
+    const sidebarPeek = document.getElementById("sidebarPeek");
     const ring = document.getElementById("ring");
     const scene = document.getElementById("scene");
+    const mapLinks = document.getElementById("mapLinks");
+    const emptyState = document.getElementById("emptyState");
     const detail = document.getElementById("detail");
     const filters = document.getElementById("filters");
     const visibleCount = document.getElementById("visibleCount");
@@ -2627,8 +2690,637 @@
     const recommendationView = document.getElementById("recommendationView");
     const documentDialog = document.getElementById("documentDialog");
     const documentPages = document.getElementById("documentPages");
+    const highlightIndex = documentDialog.querySelector(".highlight-index");
+    const sampleHighlightIndexHtml = highlightIndex.innerHTML;
+    const sampleDocumentPagesHtml = documentPages.innerHTML;
+    const documentUpload = document.getElementById("documentUpload");
+    const openDocumentButton = document.getElementById("openDocument");
+    const documentPaste = document.getElementById("documentPaste");
+    const documentStatus = document.getElementById("documentStatus");
+    const uploadMessage = document.getElementById("uploadMessage");
+    const uploadDrop = document.querySelector(".upload-drop");
+    const fileModeWarning = document.getElementById("fileModeWarning");
+    fileModeWarning.hidden = location.protocol !== "file:";
+
+    function escapeHtml(value) {
+      return String(value ?? "").replace(/[&<>"']/g, char => ({
+        "&": "&amp;",
+        "<": "&lt;",
+        ">": "&gt;",
+        "\"": "&quot;",
+        "'": "&#39;"
+      }[char]));
+    }
+
+    function slugify(value, fallback = "clause") {
+      const slug = String(value || "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 48);
+      return slug || fallback;
+    }
+
+    function setSidebarCollapsed(collapsed) {
+      state.sidebarCollapsed = collapsed;
+      app.classList.toggle("sidebar-collapsed", collapsed);
+      sidebarToggle.setAttribute("aria-label", collapsed ? "Open taskbar" : "Collapse taskbar");
+      sidebarToggle.textContent = collapsed ? "›" : "‹";
+    }
+
+    function setUploadMessage(message, type = "muted") {
+      uploadMessage.textContent = message;
+      uploadMessage.dataset.type = type;
+      documentStatus.textContent = type === "busy" ? "Reading" : nodes.length ? `${nodes.length} clauses` : "Empty";
+    }
+
+    function resetSceneForDocument() {
+      state.mode = "all";
+      state.activeCategory = "all";
+      state.selected = nodes[0]?.id || "";
+      state.rotation = 0;
+      state.tilt = 10;
+      state.zoom = nodes.length > 16 ? 72 : 92;
+      state.depth = nodes.length > 16 ? 92 : 68;
+      state.panX = 0;
+      state.panY = 0;
+      state.search = "";
+      state.dossierHidden = false;
+      search.value = "";
+    }
+
+    function categoryForText(text) {
+      const value = text.toLowerCase();
+      if (/(data|privacy|personal information|security|breach|ai|model|processor|subprocessor)/.test(value)) return "data";
+      if (/(intellectual property|ip|license|licence|trademark|mark|copyright|publicity|logo)/.test(value)) return "ip";
+      if (/(confidential|governing law|jurisdiction|notice|termination|term|force majeure|dispute)/.test(value)) return "governance";
+      if (/(employee|personnel|contractor|student|partner|third party|solicit|circumvent)/.test(value)) return "people";
+      if (/(payment|fee|funding|cost|revenue|commercial|approval|budget|expense|liability)/.test(value)) return "commercial";
+      return "framework";
+    }
+
+    function riskForText(text) {
+      const value = text.toLowerCase();
+      if (/(shall|must|required|binding|liability|indemn|breach|terminate|confidential|personal data|governing law|jurisdiction|exclusive|non-circumvention|non-solicit|warranty|damages)/.test(value)) return "high";
+      if (/(may|approval|consent|notice|reasonable|subject to|separate agreement|cost|funding|license|licence|ownership)/.test(value)) return "medium";
+      return "low";
+    }
+
+    function articleLabelFromText(text, index) {
+      const match = text.match(/\b(article|section|clause|schedule)\s+([ivxlcdm\d]+[a-z]?(\.\d+)*)/i);
+      if (match) return `${match[1][0].toUpperCase()}${match[1].slice(1)} ${match[2].toUpperCase()}`;
+      return `Clause ${index + 1}`;
+    }
+
+    function splitDocumentIntoClauses(text) {
+      const cleaned = text.replace(/\r/g, "\n").replace(/[ \t]+/g, " ").replace(/\n{3,}/g, "\n\n").trim();
+      if (!cleaned) return [];
+      const parts = cleaned
+        .split(/\n(?=(?:article|section|clause|schedule)\s+[ivxlcdm\d]+|\d+(?:\.\d+)+\s+|[A-Z][A-Z0-9&/,() .:-]{7,}(?:\n|$))/gim)
+        .map(part => part.trim())
+        .filter(part => part.length > 45);
+
+      const chunks = parts.length > 1 ? parts : cleaned
+        .split(/(?<=[.!?])\s+(?=(?:The|Each|Either|Neither|Party|Parties|Recipient|Provider|Company|Client|Contractor|Vendor|Institution|User|Customer)\b)/g)
+        .map(part => part.trim())
+        .filter(part => part.length > 45);
+
+      return chunks.slice(0, 60);
+    }
+
+    function extractRecommendations(text, risk, category) {
+      const recs = [];
+      const value = text.toLowerCase();
+      if (risk === "high") recs.push("Review before signature and confirm whether this clause should be binding.");
+      if (/(blank|to be agreed|tbd|mutually agreed)/.test(value)) recs.push("Fill the open term before execution.");
+      if (category === "data") recs.push("Add data roles, safeguards, breach notice, retention, and cross-border transfer terms.");
+      if (category === "ip") recs.push("Confirm ownership, licenses, permitted use, improvements, and publicity approvals.");
+      if (category === "commercial") recs.push("Add money, approvals, scope, liability, and funding controls in a separate agreement.");
+      if (category === "people") recs.push("Define covered people, carve-outs, and permitted ordinary recruiting or partner activity.");
+      if (!recs.length) recs.push("Keep for implementation tracking and confirm the responsible owner.");
+      return [...new Set(recs)].join(" ");
+    }
+
+
+    function normalizeSourceText(value) {
+      return String(value || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").replace(/\s+/g, " ").trim();
+    }
+
+    function sourceTextForNode(node) {
+      const source = sources[node.id];
+      return [source?.quote, node.title, node.section, node.summary, ...(node.clauses || [])]
+        .filter(Boolean)
+        .join(" ");
+    }
+
+    function scoreSourcePage(node, pageText) {
+      const page = normalizeSourceText(pageText);
+      if (!page) return 0;
+      const exacts = [sources[node.id]?.quote, node.title, node.summary, ...(node.clauses || [])]
+        .map(normalizeSourceText)
+        .filter(part => part.length > 18);
+      let score = 0;
+      exacts.forEach(part => {
+        const sample = part.slice(0, Math.min(part.length, 120));
+        if (sample && page.includes(sample)) score += 24;
+      });
+      const terms = [...new Set(normalizeSourceText(sourceTextForNode(node)).split(" ").filter(word => word.length > 4))].slice(0, 36);
+      terms.forEach(term => {
+        if (page.includes(term)) score += 1;
+      });
+      return score;
+    }
+
+    function assignSourcePages() {
+      if (!uploadedDocument.pdfPages?.length) return;
+      const pageCounts = {};
+      nodes.forEach((node, index) => {
+        let best = uploadedDocument.pdfPages[0];
+        let bestScore = -1;
+        uploadedDocument.pdfPages.forEach(page => {
+          const score = scoreSourcePage(node, page.text);
+          if (score > bestScore) {
+            bestScore = score;
+            best = page;
+          }
+        });
+        pageCounts[best.pageNumber] = pageCounts[best.pageNumber] || 0;
+        const bandTop = 12 + ((pageCounts[best.pageNumber] * 13) % 72);
+        pageCounts[best.pageNumber] += 1;
+        sources[node.id] = {
+          ...(sources[node.id] || {}),
+          page: best.pageNumber,
+          pageNumber: best.pageNumber,
+          rects: [[7, bandTop, 86, 10]],
+          sourceIndex: index
+        };
+      });
+    }
+
+    function setNodesFromAnalysis(analyzedNodes, name = "Uploaded document", provider = "OpenRouter") {
+      const usedIds = new Set();
+      sources = {};
+      nodes = analyzedNodes.map((item, index) => {
+        const category = categories[item.category] ? item.category : "framework";
+        const risk = risks[item.risk] ? item.risk : "medium";
+        let id = slugify(item.id || item.title || `clause-${index + 1}`, `clause-${index + 1}`);
+        while (usedIds.has(id)) id = `${id}-${index + 1}`;
+        usedIds.add(id);
+        const clauses = Array.isArray(item.clauses) && item.clauses.length
+          ? item.clauses.map(clause => String(clause).trim()).filter(Boolean).slice(0, 4)
+          : [String(item.summary || item.title || `Clause ${index + 1}`)];
+        const node = {
+          id,
+          title: String(item.title || `Clause ${index + 1}`).slice(0, 90),
+          section: String(item.section || `${item.title || `Clause ${index + 1}`} - ${name}`).slice(0, 140),
+          category,
+          risk,
+          summary: String(item.summary || clauses[0]).slice(0, 360),
+          why: String(item.why || "This clause may affect obligations, approvals, delivery, or enforcement.").slice(0, 420),
+          ask: String(item.ask || "Review this clause and confirm the required decision, owner, and next step.").slice(0, 420),
+          clauses,
+          tags: Array.isArray(item.tags) ? item.tags.map(tag => String(tag).slice(0, 30)).filter(Boolean).slice(0, 6) : []
+        };
+        sources[id] = {
+          page: node.title,
+          quote: clauses[0],
+          rects: [[8, 18, 84, 22]]
+        };
+        return node;
+      });
+
+      assignSourcePages();
+      state.uploadedName = name;
+      recommendationStatus = {};
+      rebuildCardOrders();
+      resetSceneForDocument();
+      render();
+      revealDetail();
+      setSidebarCollapsed(true);
+      setUploadMessage(`Done. ${provider} found ${nodes.length} clauses in ${name}.`, "success");
+      return true;
+    }
+
+    async function analyzeWithOpenRouter(text, name) {
+      const response = await fetch("/api/analyze", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text, name })
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || "OpenRouter analysis failed.");
+      if (!Array.isArray(data.nodes) || !data.nodes.length) throw new Error("OpenRouter did not return clauses.");
+      return data.nodes;
+    }
+
+    function beginNewDocumentAnalysis(name) {
+      nodes = [];
+      sources = {};
+      recommendationStatus = {};
+      state.uploadedName = name;
+      state.selected = "";
+      state.dossierHidden = true;
+      rebuildCardOrders();
+      resetSceneForDocument();
+      render();
+      setSidebarCollapsed(false);
+    }
+
+    async function processDocumentText(text, name) {
+      const readableText = String(text || "").trim();
+      uploadedDocument.name = name;
+      uploadedDocument.text = readableText;
+      if (!readableText) {
+        buildNodesFromText("", name);
+        return false;
+      }
+
+      beginNewDocumentAnalysis(name);
+
+      if (location.protocol === "file:") {
+        buildNodesFromText(readableText, name);
+        setUploadMessage("Local file preview cannot call OpenRouter. Open the Vercel link or localhost preview for AI analysis.", "error");
+        return false;
+      }
+
+      setUploadMessage(`Analyzing ${name} with OpenRouter...`, "busy");
+      try {
+        const analyzedNodes = await analyzeWithOpenRouter(readableText, name);
+        return setNodesFromAnalysis(analyzedNodes, name, "OpenRouter");
+      } catch (error) {
+        const fallbackWorked = buildNodesFromText(readableText, name);
+        setUploadMessage(`${error.message} Local clause map was created instead.`, fallbackWorked ? "error" : "error");
+        return fallbackWorked;
+      }
+    }
+
+    function buildNodesFromText(text, name = "Uploaded document") {
+      const chunks = splitDocumentIntoClauses(text);
+      if (!chunks.length) {
+        nodes = [];
+        sources = {};
+        recommendationStatus = {};
+        state.uploadedName = "";
+        rebuildCardOrders();
+        resetSceneForDocument();
+        render();
+        setSidebarCollapsed(false);
+        setUploadMessage("I could not find readable clauses in that file. Try a text-based PDF, Word document, or paste the document text.", "error");
+        return false;
+      }
+      sources = {};
+      nodes = chunks.map((chunk, index) => {
+        const label = articleLabelFromText(chunk, index);
+        const category = categoryForText(chunk);
+        const risk = riskForText(chunk);
+        const firstSentence = chunk.split(/(?<=[.!?])\s+/)[0] || chunk;
+        const summary = firstSentence.slice(0, 210) + (firstSentence.length > 210 ? "..." : "");
+        const idBase = `${label}-${index + 1}`;
+        const id = slugify(idBase, `clause-${index + 1}`);
+        const clauses = chunk.split(/(?<=[.!?])\s+/).filter(Boolean).slice(0, 3).map(item => item.trim());
+        const tags = [...new Set([
+          categories[category].label,
+          risks[risk].label,
+          ...chunk.toLowerCase().match(/\b(confidentiality|privacy|data|payment|termination|ip|license|approval|notice|liability|ai|governing law|consent)\b/g) || []
+        ])].slice(0, 6);
+        sources[id] = {
+          page: label.replace(/^(Article|Section|Clause)\s+/i, ""),
+          quote: summary,
+          rects: [[8, 18, 84, 22]]
+        };
+        return {
+          id,
+          title: label,
+          section: `${label} - ${name}`,
+          category,
+          risk,
+          summary,
+          why: risk === "high"
+            ? "This clause contains binding, liability, privacy, IP, termination, or unresolved terms that can affect signing or delivery."
+            : "This clause affects implementation and should be tracked with an owner, decision, or supporting document.",
+          ask: extractRecommendations(chunk, risk, category),
+          clauses: clauses.length ? clauses : [summary],
+          tags
+        };
+      });
+      assignSourcePages();
+      state.uploadedName = name;
+      recommendationStatus = {};
+      rebuildCardOrders();
+      resetSceneForDocument();
+      render();
+      revealDetail();
+      setSidebarCollapsed(true);
+      setUploadMessage(`Done. Found ${nodes.length} clauses in ${name}.`, "success");
+      return true;
+    }
+
+    function decodeXmlEntities(value) {
+      const textarea = document.createElement("textarea");
+      textarea.innerHTML = value;
+      return textarea.value;
+    }
+
+    async function inflateRawZipEntry(bytes) {
+      if (!("DecompressionStream" in window)) return "";
+      const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream("deflate-raw"));
+      return await new Response(stream).text();
+    }
+
+    function findEndOfCentralDirectory(view) {
+      for (let offset = view.byteLength - 22; offset >= Math.max(0, view.byteLength - 66000); offset -= 1) {
+        if (view.getUint32(offset, true) === 0x06054b50) return offset;
+      }
+      return -1;
+    }
+
+    async function extractDocxText(arrayBuffer) {
+      if (window.mammoth) {
+        const result = await window.mammoth.extractRawText({ arrayBuffer });
+        if (result.value?.trim()) return result.value;
+      }
+
+      const view = new DataView(arrayBuffer);
+      const eocd = findEndOfCentralDirectory(view);
+      if (eocd < 0) return "";
+      const decoder = new TextDecoder();
+      const totalEntries = view.getUint16(eocd + 10, true);
+      const centralDirectoryOffset = view.getUint32(eocd + 16, true);
+      let pointer = centralDirectoryOffset;
+      const entries = [];
+
+      for (let index = 0; index < totalEntries; index += 1) {
+        if (view.getUint32(pointer, true) !== 0x02014b50) break;
+        const method = view.getUint16(pointer + 10, true);
+        const compressedSize = view.getUint32(pointer + 20, true);
+        const nameLength = view.getUint16(pointer + 28, true);
+        const extraLength = view.getUint16(pointer + 30, true);
+        const commentLength = view.getUint16(pointer + 32, true);
+        const localOffset = view.getUint32(pointer + 42, true);
+        const name = decoder.decode(new Uint8Array(arrayBuffer, pointer + 46, nameLength));
+        entries.push({ name, method, compressedSize, localOffset });
+        pointer += 46 + nameLength + extraLength + commentLength;
+      }
+
+      const xmlParts = [];
+      for (const entry of entries.filter(item => /^word\/(document|header\d+|footer\d+)\.xml$/.test(item.name))) {
+        const local = entry.localOffset;
+        if (view.getUint32(local, true) !== 0x04034b50) continue;
+        const nameLength = view.getUint16(local + 26, true);
+        const extraLength = view.getUint16(local + 28, true);
+        const dataStart = local + 30 + nameLength + extraLength;
+        const bytes = new Uint8Array(arrayBuffer, dataStart, entry.compressedSize);
+        let xml = "";
+        if (entry.method === 0) xml = decoder.decode(bytes);
+        if (entry.method === 8) xml = await inflateRawZipEntry(bytes);
+        if (xml) xmlParts.push(xml);
+      }
+
+      return xmlParts.map(xml => {
+        const paragraphs = [...xml.matchAll(/<w:p[\s\S]*?<\/w:p>/g)].map(match => {
+          const text = [...match[0].matchAll(/<w:t[^>]*>([\s\S]*?)<\/w:t>/g)]
+            .map(part => decodeXmlEntities(part[1]))
+            .join("");
+          return text.trim();
+        }).filter(Boolean);
+        return paragraphs.join("\n");
+      }).join("\n");
+    }
+
+    async function extractPdfDocumentText(arrayBuffer) {
+      const pdfjs = window.pdfjsLib || await import("./assets/vendor/pdfjs/pdf.min.mjs");
+      window.pdfjsLib = pdfjs;
+      if (!pdfjs) return "";
+      if (pdfjs.GlobalWorkerOptions) {
+        pdfjs.GlobalWorkerOptions.workerSrc = "./assets/vendor/pdfjs/pdf.worker.min.mjs";
+      }
+      const loadingTask = pdfjs.getDocument({ data: arrayBuffer.slice(0) });
+      const pdf = await loadingTask.promise;
+      const pages = [];
+      for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber += 1) {
+        const page = await pdf.getPage(pageNumber);
+        const content = await page.getTextContent();
+        pages.push({
+          pageNumber,
+          text: content.items.map(item => item.str || "").join(" ").replace(/\s+/g, " ").trim()
+        });
+      }
+      uploadedDocument.pdfPages = pages;
+      return pages.map(page => page.text).join("\n\n");
+    }
+
+    async function readUploadedFile(file) {
+      const lowerName = file.name.toLowerCase();
+      if (uploadedDocument.fileUrl) URL.revokeObjectURL(uploadedDocument.fileUrl);
+      uploadedDocument = {
+        name: file.name,
+        text: "",
+        fileUrl: URL.createObjectURL(file),
+        fileType: lowerName.endsWith(".pdf") ? "pdf" : lowerName.endsWith(".docx") ? "docx" : "text",
+        pdfData: null,
+        pdfPages: []
+      };
+      setUploadMessage(`Reading ${file.name}...`, "busy");
+      try {
+        if (lowerName.endsWith(".docx")) {
+          const text = await extractDocxText(await file.arrayBuffer());
+          await processDocumentText(text, file.name);
+          return;
+        }
+
+        if (lowerName.endsWith(".pdf")) {
+          const pdfBuffer = await file.arrayBuffer();
+          uploadedDocument.pdfData = pdfBuffer.slice(0);
+          const text = await extractPdfDocumentText(pdfBuffer);
+          await processDocumentText(text, file.name);
+          return;
+        }
+
+        const raw = await file.text();
+        const readable = raw
+          .replace(/\\[rn]/g, " ")
+          .replace(/[^\x09\x0A\x0D\x20-\x7E]+/g, " ")
+          .replace(/\s{2,}/g, " ")
+          .trim();
+        await processDocumentText(readable, file.name);
+      } catch (error) {
+        console.error(error);
+        buildNodesFromText("", file.name);
+      }
+    }
+
+    function isSampleDocument() {
+      return !uploadedDocument.text && (!state.uploadedName || state.uploadedName.includes("UCC Intellibus MOU sample"));
+    }
+
+    function uploadedSourcePageForNode(id) {
+      return sources[id]?.pageNumber || sources[id]?.page || 1;
+    }
+
+    function renderUploadedTextDocument(selectedId = state.selected) {
+      const sourceText = uploadedDocument.text || nodes.map(node => `${node.title}\n${node.clauses.join("\n")}`).join("\n\n");
+      documentPages.innerHTML = `
+        <article class="uploaded-source-page" id="uploaded-source-text">
+          <h3>${escapeHtml(uploadedDocument.name || state.uploadedName || "Uploaded document")}</h3>
+          <p class="uploaded-source-note">This is extracted document text. Upload a PDF to see original pages with yellow source highlights.</p>
+          <pre>${escapeHtml(sourceText)}</pre>
+        </article>
+      `;
+    }
+
+    async function renderUploadedPdfPages(selectedId = state.selected) {
+      if (!uploadedDocument.pdfData) {
+        renderUploadedTextDocument(selectedId);
+        return;
+      }
+      documentPages.innerHTML = `<div class="uploaded-pdf-loading">Rendering uploaded PDF pages...</div>`;
+      const pdfjs = window.pdfjsLib || await import("./assets/vendor/pdfjs/pdf.min.mjs");
+      window.pdfjsLib = pdfjs;
+      if (pdfjs.GlobalWorkerOptions) {
+        pdfjs.GlobalWorkerOptions.workerSrc = "./assets/vendor/pdfjs/pdf.worker.min.mjs";
+      }
+      const pdf = await pdfjs.getDocument({ data: uploadedDocument.pdfData.slice(0) }).promise;
+      documentPages.innerHTML = "";
+      for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber += 1) {
+        const page = await pdf.getPage(pageNumber);
+        const viewport = page.getViewport({ scale: 1.35 });
+        const figure = document.createElement("figure");
+        figure.className = "document-page uploaded-pdf-page";
+        figure.id = `uploaded-document-page-${pageNumber}`;
+        figure.innerHTML = `<figcaption>Page ${pageNumber} of ${pdf.numPages}</figcaption><div class="page-canvas"></div>`;
+        const pageCanvas = figure.querySelector(".page-canvas");
+        const canvas = document.createElement("canvas");
+        canvas.className = "pdf-render-canvas";
+        canvas.width = Math.floor(viewport.width);
+        canvas.height = Math.floor(viewport.height);
+        pageCanvas.appendChild(canvas);
+        documentPages.appendChild(figure);
+        await page.render({ canvasContext: canvas.getContext("2d"), viewport }).promise;
+        nodes
+          .filter(node => Number(uploadedSourcePageForNode(node.id)) === pageNumber)
+          .forEach(node => {
+            const source = sources[node.id] || {};
+            (source.rects?.length ? source.rects : [[8, 18, 84, 14]]).forEach(rect => {
+              const [x, y, w, h] = rect;
+              const highlight = document.createElement("button");
+              highlight.className = `document-page-highlight uploaded-pdf-highlight ${node.id === selectedId ? "is-active" : ""}`;
+              highlight.type = "button";
+              highlight.dataset.label = node.title;
+              highlight.dataset.sourceNode = node.id;
+              highlight.style.setProperty("--x", `${x}%`);
+              highlight.style.setProperty("--y", `${y}%`);
+              highlight.style.setProperty("--w", `${w}%`);
+              highlight.style.setProperty("--h", `${h}%`);
+              highlight.addEventListener("click", () => selectSourceNodeInDialog(node.id, false));
+              pageCanvas.appendChild(highlight);
+            });
+          });
+      }
+      scrollUploadedDocumentToNode(selectedId, "auto");
+    }
+
+    function scrollUploadedDocumentToNode(id = state.selected, behavior = "smooth") {
+      const page = uploadedSourcePageForNode(id);
+      documentDialog.querySelectorAll("[data-source-node]").forEach(button => {
+        button.setAttribute("aria-current", button.dataset.sourceNode === id ? "true" : "false");
+      });
+      documentPages.querySelectorAll(".uploaded-pdf-highlight").forEach(item => {
+        item.classList.toggle("is-active", item.dataset.sourceNode === id);
+      });
+      const target = document.getElementById(`uploaded-document-page-${page}`) || document.getElementById("uploaded-source-text");
+      if (target) documentPages.scrollTo({ top: target.offsetTop - documentPages.offsetTop - 12, behavior });
+    }
+
+    function selectSourceNodeInDialog(id, closeDialog = false) {
+      const node = nodes.find(item => item.id === id);
+      if (!node) return;
+      state.selected = node.id;
+      state.dossierHidden = false;
+      state.view = "map";
+      renderDetail();
+      renderMapDossier();
+      renderView();
+      revealDetail();
+      scrollUploadedDocumentToNode(node.id);
+      if (closeDialog) documentDialog.close();
+    }
+
+    function renderUploadedDocumentDialog(selectedId = state.selected) {
+      const title = document.getElementById("documentTitle");
+      const subtitle = document.querySelector(".document-dialog-header p");
+      const headerLinks = documentDialog.querySelectorAll(".document-dialog-actions a");
+      const openPdfLink = headerLinks[0];
+      const downloadWordLink = headerLinks[1];
+      title.textContent = uploadedDocument.name || state.uploadedName || "Uploaded document";
+      subtitle.textContent = uploadedDocument.fileType === "pdf"
+        ? "Uploaded PDF with yellow source highlights. Select any analyzed clause to jump to its page."
+        : "Extracted source text from the document you uploaded and analyzed.";
+      if (openPdfLink) {
+        openPdfLink.hidden = uploadedDocument.fileType !== "pdf" || !uploadedDocument.fileUrl;
+        openPdfLink.href = uploadedDocument.fileUrl || "#";
+        openPdfLink.textContent = "Open uploaded PDF";
+      }
+      if (downloadWordLink) {
+        downloadWordLink.hidden = true;
+      }
+
+      const index = documentDialog.querySelector(".highlight-index");
+      index.innerHTML = `
+        <h3>Highlighted source</h3>
+        <p>${uploadedDocument.fileType === "pdf" ? "Click a clause to jump to the yellow highlight on the uploaded PDF." : "Click a clause to jump to the extracted source text."}</p>
+        <div class="highlight-jump-list">
+          ${nodes.map((node, index) => {
+            const page = uploadedSourcePageForNode(node.id);
+            return `
+              <button class="highlight-jump" type="button" data-source-node="${node.id}" aria-current="${node.id === selectedId}">
+                <span class="highlight-page">${uploadedDocument.fileType === "pdf" ? `P${page}` : index + 1}</span>
+                <span><strong>${escapeHtml(node.title)}</strong><span>${escapeHtml(sources[node.id]?.quote || node.summary)}</span></span>
+              </button>
+            `;
+          }).join("")}
+        </div>
+      `;
+
+      index.querySelectorAll("[data-source-node]").forEach(button => {
+        button.addEventListener("click", () => selectSourceNodeInDialog(button.dataset.sourceNode, false));
+      });
+
+      if (uploadedDocument.fileType === "pdf" && uploadedDocument.pdfData) {
+        renderUploadedPdfPages(selectedId).catch(error => {
+          console.error(error);
+          renderUploadedTextDocument(selectedId);
+        });
+      } else {
+        renderUploadedTextDocument(selectedId);
+      }
+    }
+
+    function renderSampleDocumentDialog() {
+      document.getElementById("documentTitle").textContent = "UCC and Intellibus Draft MOU";
+      document.querySelector(".document-dialog-header p").textContent = "Full 10-page source document with quick jumps to the clauses highlighted in the map.";
+      const headerLinks = documentDialog.querySelectorAll(".document-dialog-actions a");
+      const openPdfLink = headerLinks[0];
+      const downloadWordLink = headerLinks[1];
+      if (openPdfLink) {
+        openPdfLink.hidden = false;
+        openPdfLink.href = "assets/documents/ucc-intellibus-mou-draft-v1.5.pdf";
+        openPdfLink.textContent = "Open PDF";
+      }
+      if (downloadWordLink) {
+        downloadWordLink.hidden = false;
+        downloadWordLink.href = "assets/documents/ucc-intellibus-mou-draft-v1.5.docx";
+      }
+      if (!document.getElementById("document-page-1")) {
+        highlightIndex.innerHTML = sampleHighlightIndexHtml;
+        documentPages.innerHTML = sampleDocumentPagesHtml;
+        bindDocumentJumps();
+      }
+    }
 
     function openDocumentAt(page = 1) {
+      if (!isSampleDocument()) {
+        renderUploadedDocumentDialog(state.selected);
+        if (!documentDialog.open) documentDialog.showModal();
+        requestAnimationFrame(() => scrollUploadedDocumentToNode(state.selected, "auto"));
+        return;
+      }
+      renderSampleDocumentDialog();
       const safePage = Math.max(1, Math.min(10, Number(page) || 1));
       documentDialog.querySelectorAll("[data-pdf-page]").forEach(button => {
         button.setAttribute("aria-current", Number(button.dataset.pdfPage) === safePage ? "true" : "false");
@@ -2643,9 +3335,13 @@
     document.getElementById("openDocument").addEventListener("click", () => openDocumentAt(9));
     document.getElementById("closeDocument").addEventListener("click", () => documentDialog.close());
 
-    documentDialog.querySelectorAll("[data-pdf-page]").forEach(button => {
-      button.addEventListener("click", () => openDocumentAt(button.dataset.pdfPage));
-    });
+    function bindDocumentJumps() {
+      documentDialog.querySelectorAll("[data-pdf-page]").forEach(button => {
+        button.addEventListener("click", () => openDocumentAt(button.dataset.pdfPage));
+      });
+    }
+
+    bindDocumentJumps();
 
     documentDialog.addEventListener("click", event => {
       if (event.target === documentDialog) documentDialog.close();
@@ -2694,35 +3390,46 @@
       return modeMatch(node) && categoryMatch(node) && searchMatch(node);
     }
 
-    const defaultCardOrders = {
-      high: nodes.filter(node => node.risk === "high").map(node => node.id),
-      medium: nodes.filter(node => node.risk === "medium").map(node => node.id),
-      low: nodes.filter(node => node.risk === "low").map(node => node.id)
+    let defaultCardOrders = {
+      high: [],
+      medium: [],
+      low: []
     };
 
-    let cardOrders = (() => {
+    let cardOrders = {
+      high: [],
+      medium: [],
+      low: []
+    };
+
+    function rebuildCardOrders() {
+      defaultCardOrders = {
+        high: nodes.filter(node => node.risk === "high").map(node => node.id),
+        medium: nodes.filter(node => node.risk === "medium").map(node => node.id),
+        low: nodes.filter(node => node.risk === "low").map(node => node.id)
+      };
       try {
-        const saved = JSON.parse(localStorage.getItem("ucc-mou-card-order-v1") || "{}");
-        return Object.fromEntries(Object.keys(defaultCardOrders).map(risk => {
+        const saved = JSON.parse(localStorage.getItem(`orbit-card-order-${slugify(state.uploadedName || "empty")}`) || "{}");
+        cardOrders = Object.fromEntries(Object.keys(defaultCardOrders).map(risk => {
           const valid = (saved[risk] || []).filter(id => defaultCardOrders[risk].includes(id));
           const missing = defaultCardOrders[risk].filter(id => !valid.includes(id));
           return [risk, [...valid, ...missing]];
         }));
       } catch {
-        return structuredClone(defaultCardOrders);
+        cardOrders = structuredClone(defaultCardOrders);
       }
-    })();
+    }
 
     function saveCardOrders() {
       try {
-        localStorage.setItem("ucc-mou-card-order-v1", JSON.stringify(cardOrders));
+        localStorage.setItem(`orbit-card-order-${slugify(state.uploadedName || "empty")}`, JSON.stringify(cardOrders));
       } catch {
         // The board still works when browser storage is unavailable.
       }
     }
 
     function orderedRiskNodes(risk) {
-      return cardOrders[risk]
+      return (cardOrders[risk] || [])
         .map(id => nodes.find(node => node.id === id))
         .filter(Boolean);
     }
@@ -2854,6 +3561,13 @@
         .map(item => item.node);
     }
 
+    function setRecommendationStatus(id, status) {
+      recommendationStatus[id] = status;
+      renderRecommendationLog();
+      renderDetail();
+    }
+    window.setRecommendationStatus = setRecommendationStatus;
+
     function downloadRecommendationCsv() {
       const rows = [["Priority", "Article / clause", "Issue / change", "Recommendation", "Why"]];
       recommendationNodes().forEach(node => rows.push([
@@ -2882,7 +3596,7 @@
         <header class="recommendation-header">
           <div>
             <h2>Executive recommendation log</h2>
-            <p>All identified MOU changes in priority order. Select an issue to open its full analysis, supporting clauses, and source-document highlight.</p>
+            <p>All identified changes in priority order. Accept or reject each recommendation as the review decision changes.</p>
           </div>
           <div class="recommendation-actions" aria-label="Recommendation log actions">
             <button class="recommendation-action" type="button" data-download-recommendations>Download CSV</button>
@@ -2896,19 +3610,45 @@
           <span class="priority-summary" style="--risk:var(--blue)"><strong>${visibleNodes.length}</strong> of ${nodes.length} shown</span>
         </div>
         ${visibleNodes.length ? `
+          <div class="recommendation-deck" aria-label="Recommendation decisions">
+            ${visibleNodes.map(node => {
+              const priority = priorityInfo[node.risk];
+              const decision = recommendationStatus[node.id] || "pending";
+              return `
+                <article class="recommendation-card" style="--risk:${priority.color}" data-decision="${decision}">
+                  <button class="recommendation-card-main" type="button" data-open-recommendation="${node.id}">
+                    <small>${priority.label} · ${escapeHtml(node.section)}</small>
+                    <strong>${escapeHtml(node.title)}</strong>
+                    <span>${escapeHtml(node.ask)}</span>
+                  </button>
+                  <div class="decision-actions" data-decision="${decision}">
+                    <button type="button" onmousedown="window.setRecommendationStatus('${node.id}', 'accepted')" onpointerup="window.setRecommendationStatus('${node.id}', 'accepted')" onclick="window.setRecommendationStatus('${node.id}', 'accepted')" data-decision-action="accepted" data-decision-id="${node.id}" aria-pressed="${decision === "accepted"}">Accept</button>
+                    <button type="button" onmousedown="window.setRecommendationStatus('${node.id}', 'rejected')" onpointerup="window.setRecommendationStatus('${node.id}', 'rejected')" onclick="window.setRecommendationStatus('${node.id}', 'rejected')" data-decision-action="rejected" data-decision-id="${node.id}" aria-pressed="${decision === "rejected"}">Reject</button>
+                  </div>
+                </article>
+              `;
+            }).join("")}
+          </div>
           <div class="recommendation-table-wrap">
             <table class="recommendation-table">
               <thead><tr>
                 <th class="rank-column" scope="col">#</th><th class="priority-column" scope="col">Priority</th>
                 <th class="article-column" scope="col">Article / clause</th><th class="issue-column" scope="col">Issue / change</th>
-                <th class="recommendation-column" scope="col">Recommendation</th><th scope="col">Why this matters</th>
+                <th class="recommendation-column" scope="col">Recommendation</th><th scope="col">Why this matters</th><th scope="col">Decision</th>
               </tr></thead>
               <tbody>${visibleNodes.map((node, index) => {
                 const priority = priorityInfo[node.risk];
+                const decision = recommendationStatus[node.id] || "pending";
                 return `<tr class="${node.id === state.selected ? "selected" : ""}" style="--risk:${priority.color}">
                   <td>${index + 1}</td><td><span class="priority-label">${priority.label}</span></td><td>${node.section}</td>
-                  <td><button class="recommendation-issue" type="button" data-open-recommendation="${node.id}"><strong>${node.title}</strong><span>${node.summary}</span></button></td>
-                  <td>${node.ask}</td><td>${node.why}</td>
+                  <td><button class="recommendation-issue" type="button" data-open-recommendation="${node.id}"><strong>${escapeHtml(node.title)}</strong><span>${escapeHtml(node.summary)}</span></button></td>
+                  <td>${escapeHtml(node.ask)}</td><td>${escapeHtml(node.why)}</td>
+                  <td>
+                    <div class="decision-actions" data-decision="${decision}">
+                      <button type="button" onmousedown="window.setRecommendationStatus('${node.id}', 'accepted')" onpointerup="window.setRecommendationStatus('${node.id}', 'accepted')" onclick="window.setRecommendationStatus('${node.id}', 'accepted')" data-decision-action="accepted" data-decision-id="${node.id}" aria-pressed="${decision === "accepted"}">Accept</button>
+                      <button type="button" onmousedown="window.setRecommendationStatus('${node.id}', 'rejected')" onpointerup="window.setRecommendationStatus('${node.id}', 'rejected')" onclick="window.setRecommendationStatus('${node.id}', 'rejected')" data-decision-action="rejected" data-decision-id="${node.id}" aria-pressed="${decision === "rejected"}">Reject</button>
+                    </div>
+                  </td>
                 </tr>`;
               }).join("")}</tbody>
             </table>
@@ -2930,19 +3670,21 @@
     function renderView() {
       const cardsActive = state.view === "cards";
       const recommendationsActive = state.view === "recommendations";
-      const mapActive = state.view === "map";
+      const mapActive = state.view === "map" && nodes.length;
       scene.hidden = !mapActive;
       cardBoard.hidden = !cardsActive;
       recommendationView.hidden = !recommendationsActive;
+      emptyState.hidden = Boolean(nodes.length);
       app.classList.toggle("cards-layout", !mapActive);
       space.classList.toggle("card-mode", !mapActive);
-      mapDossier.style.display = mapActive ? "block" : "none";
+      mapDossier.style.display = mapActive && state.selected && !state.dossierHidden ? "block" : "none";
       document.querySelectorAll(".map-only").forEach(control => {
         control.hidden = !mapActive;
       });
       document.querySelectorAll(".view-button").forEach(button => {
         button.setAttribute("aria-pressed", button.dataset.view === state.view ? "true" : "false");
       });
+      openDocumentButton.textContent = isSampleDocument() ? "View full MOU" : "View uploaded source";
     }
 
     function renderFilters() {
@@ -2973,6 +3715,7 @@
           revealDetail();
         });
       });
+      documentStatus.textContent = nodes.length ? `${nodes.length} clauses` : "Empty";
     }
 
     function nodePosition(index, total) {
@@ -3006,6 +3749,8 @@
       state.depth = Math.max(state.depth, 78);
       state.panX = 0;
       state.panY = 0;
+      state.dossierHidden = false;
+      showTemporaryDossier();
     }
 
     function revealDetail() {
@@ -3014,6 +3759,19 @@
       requestAnimationFrame(() => {
         detail.classList.add("reveal");
       });
+    }
+
+    let dossierTimer = null;
+
+    function showTemporaryDossier() {
+      if (!nodes.length || state.view !== "map") return;
+      mapDossier.classList.remove("is-idle");
+      clearTimeout(dossierTimer);
+      dossierTimer = setTimeout(() => {
+        if (!mapDossier.matches(":hover")) {
+          mapDossier.classList.add("is-idle");
+        }
+      }, 5200);
     }
 
     let nodeOffsets = (() => {
@@ -3037,9 +3795,15 @@
 
     function renderMap() {
       const total = nodes.length;
+      if (!total) {
+        ring.innerHTML = "";
+        mapLinks.innerHTML = "";
+        visibleCount.textContent = "0/0";
+        return;
+      }
       ring.innerHTML = nodes.map((node, index) => {
-        const cat = categories[node.category];
-        const risk = risks[node.risk];
+        const cat = categories[node.category] || categories.framework;
+        const risk = risks[node.risk] || risks.medium;
         const visible = isVisible(node);
         const selected = node.id === state.selected;
         const size = node.risk === "high" ? 154 : 140;
@@ -3049,6 +3813,7 @@
             class="node ${visible ? "" : "hidden"} ${selected ? "selected" : ""}"
             type="button"
             data-id="${node.id}"
+            data-risk="${node.risk}"
             style="--accent:${cat.color}; --risk:${risk.color}; --size:${size}px; --pos:${nodePosition(index, total)}; --drag-x:${offset.x}px; --drag-y:${offset.y}px"
             aria-label="${node.title}"
           >
@@ -3075,27 +3840,57 @@
         state.selected = visible[0].id;
         render();
       }
+      requestAnimationFrame(renderMapLinks);
+    }
+
+    function renderMapLinks() {
+      if (!nodes.length || scene.hidden) {
+        mapLinks.innerHTML = "";
+        return;
+      }
+      const sceneRect = scene.getBoundingClientRect();
+      const coreRect = document.getElementById("core").getBoundingClientRect();
+      const coreX = coreRect.left + coreRect.width / 2 - sceneRect.left;
+      const coreY = coreRect.top + coreRect.height / 2 - sceneRect.top;
+      mapLinks.setAttribute("viewBox", `0 0 ${sceneRect.width} ${sceneRect.height}`);
+      mapLinks.innerHTML = [...ring.querySelectorAll(".node:not(.hidden)")].map(button => {
+        const rect = button.getBoundingClientRect();
+        const x = rect.left + rect.width / 2 - sceneRect.left;
+        const y = rect.top + rect.height / 2 - sceneRect.top;
+        const node = nodes.find(item => item.id === button.dataset.id);
+        const color = (risks[node?.risk]?.color || "var(--amber)");
+        const width = button.classList.contains("selected") ? 2.4 : 1.2;
+        return `<line x1="${coreX}" y1="${coreY}" x2="${x}" y2="${y}" style="--link:${color}" stroke-width="${width}" />`;
+      }).join("");
     }
 
     function renderDetail() {
+      if (!nodes.length) {
+        detail.innerHTML = `
+          <div class="detail-empty">
+            <span>Document review</span>
+            <h2>No document loaded</h2>
+            <p>Upload or paste a document to populate clauses, recommendations, risk cards, and source notes.</p>
+          </div>
+        `;
+        return;
+      }
       const node = nodes.find(n => n.id === state.selected) || nodes[0];
-      const cat = categories[node.category];
-      const risk = risks[node.risk];
+      const cat = categories[node.category] || categories.framework;
+      const risk = risks[node.risk] || risks.medium;
       const source = sources[node.id];
+      const decision = recommendationStatus[node.id] || "pending";
       const sourceHtml = source ? `
         <section class="detail-section">
           <h3>Highlighted Source</h3>
-          <div class="source-view" aria-label="Highlighted MOU article ${source.page}">
-            <div class="source-page text-source">
-              <div class="source-doc-label">Article ${source.page}</div>
-              <div class="source-doc-lines">${source.quote}</div>
-              ${source.rects.map(rect => `<span class="highlight" style="--x:${rect[0]}%; --y:${rect[1]}%; --w:${rect[2]}%; --h:${rect[3]}%"></span>`).join("")}
+          <div class="source-action-card">
+            <div>
+              <strong>${isSampleDocument() ? `Article ${escapeHtml(source.page)}` : "Uploaded source"}</strong>
+              <span>${escapeHtml(source.quote)}</span>
             </div>
-            <div class="source-caption">
-              <strong>Article ${source.page}</strong>
-              <span>${source.quote}</span>
-              <button class="document-button" type="button" data-open-document="${articlePdfPages[source.page] || 1}">Open this article in the full MOU</button>
-            </div>
+            <button class="document-button" type="button" data-open-document="${isSampleDocument() ? (articlePdfPages[source.page] || 1) : (source.pageNumber || source.page || 1)}">
+              ${isSampleDocument() ? "Open source page" : "Open uploaded source"}
+            </button>
           </div>
         </section>
       ` : "";
@@ -3106,11 +3901,16 @@
         <div class="detail-kicker">${cat.label} - ${node.section}</div>
         <h2>${node.title}</h2>
         <span class="severity"><span class="dot" style="--accent:${risk.color}"></span>${risk.label}</span>
+        <div class="decision-strip" data-decision="${decision}">
+          <span>${decision === "pending" ? "Recommendation pending" : `Recommendation ${decision}`}</span>
+          <button type="button" data-detail-decision="accepted">Accept</button>
+          <button type="button" data-detail-decision="rejected">Reject</button>
+        </div>
 
         <section class="dossier" id="dossier">
           <div class="dossier-header">
             <strong>Highlighted Information Dossier</strong>
-            <span class="muted">${source ? `MOU article ${source.page}` : "Source mapped"}</span>
+          <span class="muted">${source ? (isSampleDocument() ? `MOU article ${source.page}` : "Uploaded source") : "Source mapped"}</span>
           </div>
           <div class="dossier-body">
             <div class="dossier-row">
@@ -3131,7 +3931,7 @@
             </div>
             <div class="dossier-row">
               <span>Ask</span>
-              <strong>${node.ask}</strong>
+              <strong>${escapeHtml(node.ask)}</strong>
             </div>
             <div class="dossier-row">
               <span>Evidence</span>
@@ -3139,30 +3939,30 @@
             </div>
             <div class="dossier-row">
               <span>Tags</span>
-              <div class="tag-cloud">${node.tags.map(tag => `<span class="tag">${tag}</span>`).join("")}</div>
+            <div class="tag-cloud">${node.tags.map(tag => `<span class="tag">${escapeHtml(tag)}</span>`).join("")}</div>
             </div>
           </div>
         </section>
 
         <section class="detail-section">
           <h3>What It Means</h3>
-          <p>${node.summary}</p>
+          <p>${escapeHtml(node.summary)}</p>
         </section>
 
         <section class="detail-section">
           <h3>Why It Matters</h3>
-          <p>${node.why}</p>
+          <p>${escapeHtml(node.why)}</p>
         </section>
 
         <section class="detail-section">
           <h3>Commercial Ask</h3>
-          <p>${node.ask}</p>
+          <p>${escapeHtml(node.ask)}</p>
         </section>
 
         <section class="detail-section">
           <h3>Clause Details</h3>
           <div class="clause-list">
-            ${node.clauses.map(c => `<div class="clause">${c}</div>`).join("")}
+            ${node.clauses.map(c => `<div class="clause">${escapeHtml(c)}</div>`).join("")}
           </div>
         </section>
 
@@ -3182,12 +3982,19 @@
           </div>
         </section>
       `;
+      detail.querySelectorAll("[data-detail-decision]").forEach(button => {
+        button.addEventListener("click", () => setRecommendationStatus(node.id, button.dataset.detailDecision));
+      });
     }
 
     function renderMapDossier() {
+      if (!nodes.length || !state.selected) {
+        mapDossier.innerHTML = "";
+        return;
+      }
       const node = nodes.find(n => n.id === state.selected) || nodes[0];
-      const cat = categories[node.category];
-      const risk = risks[node.risk];
+      const cat = categories[node.category] || categories.framework;
+      const risk = risks[node.risk] || risks.medium;
       const source = sources[node.id];
 
       mapDossier.style.setProperty("--accent", cat.color);
@@ -3210,24 +4017,24 @@
             </div>
             <div class="map-fact">
               <span>Source</span>
-              <strong>${source ? `MOU article ${source.page}` : "Mapped clause"}</strong>
+              <strong>${source ? (isSampleDocument() ? `MOU article ${source.page}` : "Uploaded source") : "Mapped clause"}</strong>
             </div>
           </div>
           <div class="map-fact">
             <span>What It Means</span>
-            <strong>${node.summary}</strong>
+            <strong>${escapeHtml(node.summary)}</strong>
           </div>
           <div class="map-fact">
             <span>Why It Matters</span>
-            <strong>${node.why}</strong>
+            <strong>${escapeHtml(node.why)}</strong>
           </div>
           <div class="map-fact">
             <span>Commercial Ask</span>
-            <strong>${node.ask}</strong>
+            <strong>${escapeHtml(node.ask)}</strong>
           </div>
           <div class="map-fact">
             <span>Evidence</span>
-            <strong>${source ? source.quote : node.clauses[0]}</strong>
+            <strong>${escapeHtml(source ? source.quote : node.clauses[0])}</strong>
           </div>
         </div>
       `;
@@ -3235,8 +4042,10 @@
       mapDossier.querySelector(".close").addEventListener("click", event => {
         event.preventDefault();
         event.stopPropagation();
+        state.dossierHidden = true;
         mapDossier.style.display = "none";
       });
+      showTemporaryDossier();
     }
 
     function renderTabs() {
@@ -3258,6 +4067,7 @@
       zoomValue.textContent = state.zoom;
       depth.value = state.depth;
       depthValue.textContent = state.depth;
+      requestAnimationFrame(renderMapLinks);
     }
 
     function render() {
@@ -3276,8 +4086,112 @@
       button.addEventListener("click", () => {
         state.view = button.dataset.view;
         render();
+        if (state.view === "map" && nodes.length) {
+          setSidebarCollapsed(true);
+          showTemporaryDossier();
+        }
       });
     });
+
+    recommendationView.addEventListener("click", event => {
+      const decision = event.target.closest("[data-decision-action]");
+      if (!decision) return;
+      setRecommendationStatus(decision.dataset.decisionId, decision.dataset.decisionAction);
+    });
+
+    sidebarToggle.addEventListener("click", () => setSidebarCollapsed(!state.sidebarCollapsed));
+    sidebarPeek.addEventListener("click", () => setSidebarCollapsed(false));
+
+    document.getElementById("fullscreenMap").addEventListener("click", async () => {
+      state.view = "map";
+      render();
+      setSidebarCollapsed(true);
+      showTemporaryDossier();
+      try {
+        if (!document.fullscreenElement) await space.requestFullscreen();
+      } catch {
+        app.classList.add("fullscreen-fallback");
+      }
+      setTimeout(() => {
+        if (!document.fullscreenElement) app.classList.add("fullscreen-fallback");
+      }, 250);
+    });
+
+    window.addEventListener("keydown", event => {
+      if (event.key === "Escape") app.classList.remove("fullscreen-fallback");
+    });
+
+    document.getElementById("emptyUploadButton").addEventListener("click", () => documentUpload.click());
+    document.getElementById("chooseFile").addEventListener("click", () => documentUpload.click());
+
+    documentUpload.addEventListener("change", event => {
+      const file = event.target.files?.[0];
+      if (file) readUploadedFile(file);
+    });
+
+    ["dragenter", "dragover"].forEach(type => {
+      uploadDrop.addEventListener(type, event => {
+        event.preventDefault();
+        uploadDrop.classList.add("dragging");
+        setUploadMessage("Drop the document to analyze it.", "busy");
+      });
+    });
+
+    ["dragleave", "drop"].forEach(type => {
+      uploadDrop.addEventListener(type, event => {
+        event.preventDefault();
+        uploadDrop.classList.remove("dragging");
+      });
+    });
+
+    uploadDrop.addEventListener("drop", event => {
+      const file = event.dataTransfer?.files?.[0];
+      if (file) readUploadedFile(file);
+    });
+
+    document.getElementById("analyzePaste").addEventListener("click", () => {
+      const text = documentPaste.value.trim();
+      if (text) {
+        setUploadMessage("Analyzing pasted text...", "busy");
+        processDocumentText(text, "Pasted document");
+      } else {
+        setUploadMessage("Paste document text first, then analyze it.", "error");
+      }
+    });
+
+    document.getElementById("loadSample").addEventListener("click", () => {
+      if (uploadedDocument.fileUrl) URL.revokeObjectURL(uploadedDocument.fileUrl);
+      uploadedDocument = { name: "", text: "", fileUrl: "", fileType: "", pdfData: null, pdfPages: [] };
+      nodes = structuredClone(sampleNodes);
+      sources = structuredClone(sampleSources);
+      state.uploadedName = "UCC Intellibus MOU sample";
+      recommendationStatus = {};
+      rebuildCardOrders();
+      resetSceneForDocument();
+      render();
+      revealDetail();
+      setSidebarCollapsed(true);
+    });
+
+    document.getElementById("clearDocument").addEventListener("click", () => {
+      if (uploadedDocument.fileUrl) URL.revokeObjectURL(uploadedDocument.fileUrl);
+      uploadedDocument = { name: "", text: "", fileUrl: "", fileType: "", pdfData: null, pdfPages: [] };
+      nodes = [];
+      sources = {};
+      recommendationStatus = {};
+      state.uploadedName = "";
+      documentUpload.value = "";
+      documentPaste.value = "";
+      rebuildCardOrders();
+      resetSceneForDocument();
+      render();
+      setSidebarCollapsed(false);
+      setUploadMessage("Drop a file here or choose one from your computer.", "muted");
+    });
+
+    mapDossier.addEventListener("mouseenter", () => mapDossier.classList.remove("is-idle"));
+    mapDossier.addEventListener("mouseleave", showTemporaryDossier);
+    window.addEventListener("resize", () => requestAnimationFrame(renderMapLinks));
 
     document.querySelectorAll(".tab").forEach(tab => {
       tab.addEventListener("click", () => {
@@ -3342,10 +4256,20 @@
 
     space.addEventListener("pointerdown", event => {
       if (state.view === "cards") return;
+      if (event.target.closest(".empty-state, .map-dossier, .card-board, .recommendation-view, input, textarea, a")) return;
       const node = event.target.closest(".node");
       draggingNodeId = node?.dataset.id || null;
       dragging = !draggingNodeId;
       nodeWasMoved = false;
+      if (draggingNodeId && state.selected !== draggingNodeId) {
+        state.selected = draggingNodeId;
+        state.dossierHidden = false;
+        renderDetail();
+        renderMapDossier();
+        renderView();
+        showTemporaryDossier();
+        revealDetail();
+      }
       lastX = event.clientX;
       lastY = event.clientY;
       startX = event.clientX;
@@ -3374,6 +4298,7 @@
           movingNode.style.setProperty("--drag-x", `${next.x}px`);
           movingNode.style.setProperty("--drag-y", `${next.y}px`);
         }
+        renderMapLinks();
         nodeWasMoved = nodeWasMoved || Math.hypot(event.clientX - startX, event.clientY - startY) >= 6;
         return;
       }
@@ -3403,6 +4328,7 @@
         if (nodeWasMoved) {
           suppressNodeClick = true;
           saveNodeOffsets();
+          renderMapLinks();
           setTimeout(() => { suppressNodeClick = false; }, 80);
         }
         draggingNodeId = null;
