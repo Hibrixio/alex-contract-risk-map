@@ -148,3 +148,14 @@ test('accepting a recommendation adds its wording to the review document',async(
  await expect(page.locator('#documentDialog .change-preview-pane')).toContainText('Client shall pay within 15 days');
  await expect(page.locator('.accepted-amendment').last()).toContainText('Add a clear payment deadline');
 });
+
+test('finance detects PDF receipt total and preserves it after refresh',async({page})=>{
+ await signedIn(page);const {PDFDocument}=require('../assets/vendor/pdf-lib/pdf-lib.min.js');const pdf=await PDFDocument.create(),p=pdf.addPage();p.drawText('Subtotal 100.00',{x:50,y:700});p.drawText('Grand Total $115.00',{x:50,y:670});p.drawText('Cash tendered 200.00',{x:50,y:640});
+ await page.locator('.workspace-nav [data-page=finance]').click();await page.locator('#financeReceipt').setInputFiles({name:'receipt.pdf',mimeType:'application/pdf',buffer:Buffer.from(await pdf.save())});await expect(page.locator('[data-finance-field=amount]')).toHaveValue('115.00');await expect(page.locator('#financeStatus')).toContainText('Detected receipt total');await page.reload();await page.locator('.workspace-nav [data-page=finance]').click();await expect(page.locator('[data-finance-field=amount]')).toHaveValue('115.00');
+});
+
+test('finance reads photographed receipt total with OCR',async({page})=>{
+ test.setTimeout(120000);await signedIn(page);await page.locator('.workspace-nav [data-page=finance]').click();
+ const png=await page.evaluate(()=>{const c=document.createElement('canvas');c.width=1200;c.height=400;const x=c.getContext('2d');x.fillStyle='white';x.fillRect(0,0,1200,400);x.fillStyle='black';x.font='48px Arial';x.fillText('SHOP RECEIPT',60,80);x.fillText('Subtotal 100.00',60,170);x.fillText('Grand Total $115.00',60,270);return c.toDataURL('image/png').split(',')[1];});
+ await page.locator('#financeReceipt').setInputFiles({name:'receipt.png',mimeType:'image/png',buffer:Buffer.from(png,'base64')});await expect(page.locator('[data-finance-field=amount]')).toHaveValue('115.00',{timeout:100000});
+});
