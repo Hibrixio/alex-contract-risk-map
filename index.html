@@ -2878,6 +2878,15 @@
           : [String(item.summary || item.title || `Clause ${index + 1}`)];
         const node = {
           id,
+          schema_version: window.OrbitModel?.CURRENT_SCHEMA_VERSION || 1,
+          type: "Recommendation",
+          source_document_id: documentKey || null,
+          source_reference: { source_id: item.sourceId || null, section: String(item.section || "") },
+          evidence_ids: clauses.map((_, clauseIndex) => `${id}:evidence:${clauseIndex + 1}`),
+          content_origin: "ai",
+          generated_by: provider,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
           title: String(item.title || `Clause ${index + 1}`).slice(0, 90),
           section: String(item.section || `${item.title || `Clause ${index + 1}`} - ${name}`).slice(0, 140),
           category,
@@ -2892,6 +2901,8 @@
         sources[id] = {
           page: node.title,
           quote: clauses[0],
+          evidenceIds: node.evidence_ids,
+          contentOrigin: "source",
           rects: [[8, 18, 84, 22]]
         };
         return node;
@@ -2910,7 +2921,26 @@
       return true;
     }
 
+    async function analysisCacheKey(text, name) {
+      const request = document.getElementById("clauseRequest").value || "";
+      const kind = document.getElementById("mapKind").value || "clauses";
+      const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(`${text}\n${name}\n${request}\n${kind}`));
+      const hash = Array.from(new Uint8Array(digest)).map(byte => byte.toString(16).padStart(2, "0")).join("");
+      let owner = "local";
+      try { owner = currentUser?.id || "local"; } catch {}
+      return `orbit-analysis-v${window.OrbitModel?.CURRENT_SCHEMA_VERSION || 1}-${owner}-${hash}`;
+    }
+
     async function analyzeWithOpenRouter(text, name) {
+      const cacheKey = await analysisCacheKey(text, name);
+      try {
+        const cached = JSON.parse(localStorage.getItem(cacheKey) || "null");
+        if (cached?.schema_version === (window.OrbitModel?.CURRENT_SCHEMA_VERSION || 1) && Array.isArray(cached.nodes) && cached.nodes.length) {
+          window.lastAnalysisResult = cached;
+          setUploadMessage(`Reopened cached analysis for ${name}.`, "success");
+          return cached.nodes;
+        }
+      } catch {}
       const response = await fetch("/api/analyze", {
         method: "POST",
         headers: { "Content-Type": "application/json", ...await window.orbitAuthHeaders() },
@@ -2919,7 +2949,8 @@
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.error || "OpenRouter analysis failed.");
       if (!Array.isArray(data.nodes)) throw new Error("Analysis did not return a usable result.");
-      window.lastAnalysisResult = data;
+      window.lastAnalysisResult = { ...data, schema_version: window.OrbitModel?.CURRENT_SCHEMA_VERSION || 1, cached_at: new Date().toISOString() };
+      try { localStorage.setItem(cacheKey, JSON.stringify(window.lastAnalysisResult)); } catch {}
       return data.nodes;
     }
 
@@ -4459,6 +4490,7 @@
 
     render();
   </script>
+  <script src="lib/orbit-model.js"></script>
   <script src="source-engine.js"></script>
   <script src="workspace.js"></script>
   <script src="receipt-reader.js"></script>
