@@ -2884,6 +2884,7 @@
           summary: String(item.summary || clauses[0]).slice(0, 360),
           why: String(item.why || "This clause may affect obligations, approvals, delivery, or enforcement.").slice(0, 420),
           ask: String(item.ask || "Review this clause and confirm the required decision, owner, and next step.").slice(0, 420),
+          proposedWording: String(item.proposedWording || item.recommendedWording || "").slice(0, 1200),
           clauses,
           tags: Array.isArray(item.tags) ? item.tags.map(tag => String(tag).slice(0, 30)).filter(Boolean).slice(0, 6) : []
         };
@@ -3172,7 +3173,7 @@
           <h3>${escapeHtml(uploadedDocument.name || state.uploadedName || "Uploaded document")}</h3>
           <p class="uploaded-source-note">This is extracted document text. Upload a PDF to see original pages with yellow source highlights.</p>
           <pre>${escapeHtml(sourceText)}</pre>
-          ${acceptedRecommendations[selectedId] ? `<aside class="accepted-amendment-overlay"><strong>Change preview · Accepted Orbit wording</strong><del>${escapeHtml((sources[selectedId] || {}).quote || nodes.find(n=>n.id===selectedId)?.clauses?.[0] || "Original clause")}</del><span>${escapeHtml(acceptedRecommendations[selectedId])}</span></aside>` : ""}
+          ${acceptedRecommendations[selectedId] ? `<aside class="accepted-amendment-overlay"><strong>Change preview · Proposed contract wording</strong><del>${escapeHtml((sources[selectedId] || {}).quote || nodes.find(n=>n.id===selectedId)?.clauses?.[0] || "Original clause")}</del><span>${escapeHtml(acceptedRecommendations[selectedId])}</span></aside>` : ""}
         </article>
       `;
     }
@@ -3226,7 +3227,7 @@
                 const amendment = document.createElement("aside");
                 amendment.className = "accepted-amendment-overlay";
                 amendment.dataset.sourceNode = node.id;
-                amendment.innerHTML = `<strong>Change preview · Accepted Orbit wording</strong><del>${escapeHtml((sources[node.id] || {}).quote || node.clauses?.[0] || node.summary)}</del><span>${escapeHtml(acceptedRecommendations[node.id])}</span>`;
+                amendment.innerHTML = `<strong>Change preview · Proposed contract wording</strong><del>${escapeHtml((sources[node.id] || {}).quote || node.clauses?.[0] || node.summary)}</del><span>${escapeHtml(acceptedRecommendations[node.id])}</span>`;
                 amendment.addEventListener("click", () => selectSourceNodeInDialog(node.id, false));
                 pageCanvas.appendChild(amendment);
               }
@@ -3592,7 +3593,7 @@
       recommendationStatus[id] = status;
       if (status === "accepted") {
         const node = nodes.find(item => item.id === id);
-        if (node) acceptedRecommendations[id] = node.ask || "Review and confirm this clause before signing.";
+        if (node) acceptedRecommendations[id] = node.proposedWording || node.ask || "The parties agree to a commercially reasonable remedy and written notice procedure for this obligation.";
       } else {
         delete acceptedRecommendations[id];
       }
@@ -3923,7 +3924,7 @@
       const decision = recommendationStatus[node.id] || "pending";
       const acceptedHtml = decision === "accepted" && acceptedRecommendations[node.id] ? `
         <section class="accepted-amendment" aria-label="Accepted wording applied to review copy">
-          <strong>Accepted wording — review copy</strong>
+          <strong>Proposed contract wording</strong>
           <p>${escapeHtml(acceptedRecommendations[node.id])}</p>
           <small>The original uploaded document remains unchanged. This wording appears in Orbit’s review view.</small>
         </section>` : "";

@@ -275,7 +275,7 @@ function drawTaskLines(){const svg=$('taskConnections');if(!svg)return;const lis
 window.addEventListener('resize',drawTaskLines);
 // Preserve the original map, risk board, recommendation log and all map controls.
 const originalDecision=setRecommendationStatus;
-setRecommendationStatus=function(id,status){if(status==='accepted'){const node=nodes.find(item=>item.id===id);if(node)acceptedRecommendations[id]=node.ask||'Review and confirm this clause before signing.';}else delete acceptedRecommendations[id];originalDecision(id,status);localStorage.setItem(mapStorageKey()+'-decisions',JSON.stringify(recommendationStatus));localStorage.setItem(mapStorageKey()+'-accepted',JSON.stringify(acceptedRecommendations));};
+setRecommendationStatus=function(id,status){if(status==='accepted'){const node=nodes.find(item=>item.id===id);if(node)acceptedRecommendations[id]=node.proposedWording||node.ask||'The parties agree to a commercially reasonable remedy and written notice procedure for this obligation.';}else delete acceptedRecommendations[id];originalDecision(id,status);localStorage.setItem(mapStorageKey()+'-decisions',JSON.stringify(recommendationStatus));localStorage.setItem(mapStorageKey()+'-accepted',JSON.stringify(acceptedRecommendations));};
 saveNodeOffsets=function(){localStorage.setItem(mapStorageKey()+'-positions',JSON.stringify(nodeOffsets));};
 space.prepend(mapLinks);
 renderMapLinks=function(){
